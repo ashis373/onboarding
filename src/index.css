@@ -1,0 +1,424 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* HexaOne / Hex-Timesheet Design System
+   All colors calibrated to match HexaOne Timesheet UI (Emerald green #00A389, soft slate #F8FAFC, crisp white cards).
+*/
+
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 222.2 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47% 11%;
+
+    /* HexaOne signature Emerald Green (#00A389) */
+    --primary: 171 100% 32%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 171 100% 28%;
+    
+    --brand: 171 100% 32%;
+    --brand-hover: 171 100% 28%;
+    --brand-light: 168 50% 94%;
+    --success: 158 64% 42%;
+    --success-light: 152 76% 94%;
+    --warning: 38 92% 50%;
+    --warning-light: 48 96% 93%;
+    --info: 217 91% 60%;
+    --info-light: 214 95% 93%;
+
+    --secondary: 210 30% 96%;
+    --secondary-foreground: 222.2 47% 11%;
+
+    --muted: 210 30% 96%;
+    --muted-foreground: 215.4 16% 47%;
+
+    --accent: 168 50% 94%;
+    --accent-foreground: 171 100% 32%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214.3 32% 91.4%;
+    --input: 214.3 32% 91.4%;
+    --ring: 171 100% 32%;
+
+    --radius: 0.875rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222.2 47% 20%;
+    --sidebar-primary: 171 100% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 168 50% 94%;
+    --sidebar-accent-foreground: 171 100% 32%;
+    --sidebar-border: 220 13% 93%;
+    --sidebar-ring: 171 100% 32%;
+  }
+
+  .dark {
+    --background: 222.2 47% 9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 47% 12%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 47% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 171 100% 38%;
+    --primary-foreground: 0 0% 100%;
+
+    --brand: 171 100% 38%;
+    --brand-hover: 171 100% 44%;
+    --brand-light: 171 60% 18%;
+
+    --secondary: 217.2 32% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 171 60% 18%;
+    --accent-foreground: 171 100% 65%;
+
+    --destructive: 0 62% 40%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32% 20%;
+    --input: 217.2 32% 20%;
+    --ring: 171 100% 38%;
+    
+    --sidebar-background: 222.2 47% 11%;
+    --sidebar-foreground: 210 40% 95%;
+    --sidebar-primary: 171 100% 38%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 171 60% 18%;
+    --sidebar-accent-foreground: 171 100% 65%;
+    --sidebar-border: 217.2 32% 18%;
+    --sidebar-ring: 171 100% 38%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Custom HexaOne Utilities */
+.hexa-gradient {
+  background: linear-gradient(135deg, #00A389 0%, #059669 100%);
+}
+
+.hexa-card-shadow {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+}
+
+.hexa-card-hover {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hexa-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px -2px rgba(0, 163, 137, 0.12), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+}
+
+/* =========================================================================
+   ONBOARD ADVANCED DARK MODE ENGINE
+   Calibrated for high contrast, eye comfort, and full visual harmony
+   ========================================================================= */
+
+@layer components {
+  /* Dark Mode Body and Page Canvas */
+  .dark body {
+    background-color: hsl(222.2 47% 8%) !important;
+    color: hsl(210 40% 98%) !important;
+  }
+
+  /* Dark Mode Surfaces: Cards, Modals, Drawers */
+  .dark .bg-white {
+    background-color: hsl(222.2 47% 11%) !important;
+  }
+
+  .dark .bg-slate-50,
+  .dark .bg-slate-50\/50,
+  .dark .bg-slate-50\/80,
+  .dark .bg-slate-100,
+  .dark .bg-slate-100\/60,
+  .dark .bg-slate-100\/70,
+  .dark .bg-slate-100\/80,
+  .dark .bg-slate-100\/90,
+  .dark .bg-\[\#f1f5f9\],
+  .dark .bg-gray-50,
+  .dark .bg-gray-100 {
+    background-color: hsl(222.2 47% 13.5%) !important;
+  }
+
+  .dark .bg-slate-200,
+  .dark .bg-slate-200\/60,
+  .dark .bg-slate-200\/80,
+  .dark .bg-slate-200\/90,
+  .dark .bg-gray-200 {
+    background-color: hsl(222.2 47% 18%) !important;
+  }
+
+  /* Specific Featured & Status Cards in Dark Mode */
+  .dark .bg-\[\#F0FAF7\],
+  .dark .bg-\[\#F0FAF7\]\/60,
+  .dark .bg-\[\#E6F7F4\],
+  .dark .bg-\[\#E8F8F0\],
+  .dark .bg-\[\#E8F8F4\],
+  .dark .bg-\[\#EAFBF3\],
+  .dark .bg-\[\#EDFBF4\],
+  .dark .bg-\[\#d1fae5\],
+  .dark .bg-\[\#ecfdf5\] {
+    background-color: rgba(0, 163, 137, 0.14) !important;
+    border-color: rgba(0, 163, 137, 0.28) !important;
+  }
+
+  .dark .bg-\[\#FFFBEB\],
+  .dark .bg-\[\#FEF3C7\] {
+    background-color: rgba(245, 158, 11, 0.14) !important;
+    border-color: rgba(245, 158, 11, 0.28) !important;
+  }
+
+  .dark .bg-\[\#EEF4FA\],
+  .dark .bg-\[\#EAF5FE\],
+  .dark .bg-\[\#F0F5FA\],
+  .dark .bg-\[\#dbeafe\],
+  .dark .bg-\[\#eff6ff\] {
+    background-color: rgba(2, 132, 199, 0.14) !important;
+    border-color: rgba(2, 132, 199, 0.28) !important;
+  }
+
+  .dark .bg-\[\#F9F8FE\],
+  .dark .bg-\[\#FAF5FF\] {
+    background-color: rgba(139, 92, 246, 0.14) !important;
+    border-color: rgba(139, 92, 246, 0.28) !important;
+  }
+
+  .dark .bg-\[\#FEE2E2\] {
+    background-color: rgba(239, 68, 68, 0.14) !important;
+    border-color: rgba(239, 68, 68, 0.28) !important;
+  }
+
+  /* Dark Mode Borders */
+  .dark .border-slate-100,
+  .dark .border-slate-200,
+  .dark .border-slate-200\/60,
+  .dark .border-slate-200\/80,
+  .dark .border-slate-200\/90,
+  .dark .border-slate-300,
+  .dark .border-slate-300\/60,
+  .dark .border-gray-100,
+  .dark .border-gray-200,
+  .dark .border-gray-300,
+  .dark .border-\[\#CCEBE3\],
+  .dark .border-\[\#CCEBE3\]\/80 {
+    border-color: hsl(217.2 32% 18%) !important;
+  }
+
+  .dark .divide-slate-100,
+  .dark .divide-slate-200,
+  .dark .divide-slate-200\/60,
+  .dark .divide-gray-100,
+  .dark .divide-gray-200 {
+    border-color: hsl(217.2 32% 18%) !important;
+  }
+
+  /* Dark Mode Typography */
+  .dark .text-slate-900,
+  .dark .text-slate-800,
+  .dark .text-slate-700,
+  .dark .text-gray-900,
+  .dark .text-gray-800,
+  .dark .text-gray-700,
+  .dark .text-black {
+    color: hsl(210 40% 98%) !important;
+  }
+
+  .dark .text-slate-600,
+  .dark .text-slate-500,
+  .dark .text-gray-600,
+  .dark .text-gray-500 {
+    color: hsl(215 20% 70%) !important;
+  }
+
+  .dark .text-slate-400,
+  .dark .text-gray-400 {
+    color: hsl(215 20% 55%) !important;
+  }
+
+  /* Hover States in Dark Mode */
+  .dark .hover\:bg-slate-50:hover,
+  .dark .hover\:bg-slate-50\/50:hover,
+  .dark .hover\:bg-slate-50\/80:hover,
+  .dark .hover\:bg-slate-100:hover,
+  .dark .hover\:bg-slate-100\/60:hover,
+  .dark .hover\:bg-slate-100\/80:hover {
+    background-color: hsl(222.2 47% 16%) !important;
+  }
+
+  .dark .hover\:text-slate-900:hover,
+  .dark .hover\:text-slate-800:hover {
+    color: #ffffff !important;
+  }
+
+  .dark .hover\:text-slate-700:hover {
+    color: hsl(210 40% 95%) !important;
+  }
+
+  /* Dark Mode Form Inputs, Selects, and Textareas */
+  .dark input:not([type="checkbox"]):not([type="radio"]),
+  .dark textarea,
+  .dark select {
+    background-color: hsl(222.2 47% 11%) !important;
+    color: hsl(210 40% 98%) !important;
+    border-color: hsl(217.2 32% 22%) !important;
+  }
+
+  .dark input::placeholder,
+  .dark textarea::placeholder {
+    color: hsl(215 20% 50%) !important;
+  }
+
+  /* Dark Mode Dropdowns, Popovers, Dialogs */
+  .dark [role="dialog"],
+  .dark [role="menu"],
+  .dark [role="listbox"],
+  .dark .bg-popover {
+    background-color: hsl(222.2 47% 11%) !important;
+    color: hsl(210 40% 98%) !important;
+    border-color: hsl(217.2 32% 20%) !important;
+  }
+
+  /* Dark Mode Tables */
+  .dark table {
+    border-color: hsl(217.2 32% 18%) !important;
+  }
+
+  .dark th {
+    background-color: hsl(222.2 47% 13%) !important;
+    color: hsl(210 40% 98%) !important;
+    border-color: hsl(217.2 32% 18%) !important;
+  }
+
+  .dark td {
+    border-color: hsl(217.2 32% 16%) !important;
+  }
+
+  .dark tr:hover td {
+    background-color: hsl(222.2 47% 14%) !important;
+  }
+
+  /* Badges & Pills in Dark Mode */
+  .dark .bg-emerald-50,
+  .dark .bg-\[\#ecfdf5\] {
+    background-color: rgba(16, 185, 129, 0.15) !important;
+  }
+  .dark .text-emerald-700,
+  .dark .text-emerald-800,
+  .dark .text-\[\#16a34a\] {
+    color: #34d399 !important;
+  }
+  .dark .border-emerald-100,
+  .dark .border-emerald-200,
+  .dark .border-\[\#bbf7d0\] {
+    border-color: rgba(16, 185, 129, 0.3) !important;
+  }
+
+  .dark .bg-amber-50,
+  .dark .bg-amber-50\/50,
+  .dark .bg-yellow-50,
+  .dark .bg-\[\#FFFBEB\] {
+    background-color: rgba(245, 158, 11, 0.15) !important;
+  }
+  .dark .text-amber-700,
+  .dark .text-amber-800 {
+    color: #fbbf24 !important;
+  }
+  .dark .border-amber-100,
+  .dark .border-amber-200,
+  .dark .border-amber-300 {
+    border-color: rgba(245, 158, 11, 0.3) !important;
+  }
+
+  .dark .bg-rose-50,
+  .dark .bg-rose-50\/50,
+  .dark .bg-red-50 {
+    background-color: rgba(239, 68, 68, 0.15) !important;
+  }
+  .dark .text-rose-700,
+  .dark .text-rose-800,
+  .dark .text-red-700 {
+    color: #f87171 !important;
+  }
+  .dark .border-rose-100,
+  .dark .border-rose-200,
+  .dark .border-rose-300 {
+    border-color: rgba(239, 68, 68, 0.3) !important;
+  }
+
+  .dark .bg-sky-50,
+  .dark .bg-blue-50 {
+    background-color: rgba(2, 132, 199, 0.15) !important;
+  }
+  .dark .text-sky-600,
+  .dark .text-blue-600,
+  .dark .text-\[\#0284C7\],
+  .dark .text-\[\#2563eb\] {
+    color: #38bdf8 !important;
+  }
+  .dark .border-sky-100,
+  .dark .border-blue-100,
+  .dark .border-\[\#bfdbfe\] {
+    border-color: rgba(2, 132, 199, 0.3) !important;
+  }
+
+  /* SVG Progress Gauge track rings in Dark Mode */
+  .dark svg circle[stroke="#E2E8F0"],
+  .dark svg circle[stroke="#F1F5F9"] {
+    stroke: hsl(217.2 32% 18%) !important;
+  }
+
+  /* Modals & Dialog overlays */
+  .dark .bg-black\/80,
+  .dark .bg-slate-900\/60,
+  .dark .bg-slate-900\/80 {
+    background-color: rgba(0, 0, 0, 0.75) !important;
+  }
+
+  /* Elevation Shadows in Dark Mode */
+  .dark .shadow-xs,
+  .dark .shadow-sm,
+  .dark .shadow,
+  .dark .shadow-md,
+  .dark .shadow-lg,
+  .dark .shadow-2xs {
+    box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.35) !important;
+  }
+
+  /* Recharts Tooltips in Dark Mode */
+  .dark .recharts-default-tooltip {
+    background-color: hsl(222.2 47% 11%) !important;
+    border-color: hsl(217.2 32% 22%) !important;
+    color: #f8fafc !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+  }
+  .dark .recharts-tooltip-item,
+  .dark .recharts-tooltip-item-name,
+  .dark .recharts-tooltip-item-value {
+    color: #f1f5f9 !important;
+  }
+  .dark .recharts-tooltip-label {
+    color: #94a3b8 !important;
+  }
+}

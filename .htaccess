@@ -1,0 +1,18 @@
+DirectoryIndex index.php index.html
+RewriteEngine On
+RewriteBase /onboard/
+
+# 1. Serve existing files/directories directly (JS, CSS, images, fonts, API endpoints)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# 2. Directly serve built assets from dist/assets if available
+RewriteCond %{DOCUMENT_ROOT}/onboard/dist/assets/$1 -f
+RewriteRule ^assets/(.*)$ dist/assets/$1 [L]
+
+# 3. Route SCORM courses directly
+RewriteRule ^courses/(.*)$ courses/$1 [L]
+
+# 4. Otherwise, route everything to index.php (SPA)
+RewriteRule ^ index.php [L]

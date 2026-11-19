@@ -175,7 +175,25 @@ $prereqRow = $prereqRes ? $prereqRes->fetch_assoc() : null;
 $totalReq = (int)($prereqRow['total_req'] ?? 10);
 $totalDone = (int)($prereqRow['total_done'] ?? 0);
 
-if ($totalReq > 0 && $totalDone < $totalReq) {
+$isTesterOrAdmin = (
+    in_array((string)$userId, ['205', '26', '64'], true) ||
+    strtolower(trim((string)($employee['username'] ?? ''))) === 'ashisr' ||
+    strtoupper(trim((string)($employee['emp_code'] ?? ''))) === 'HL078' ||
+    ((int)($employee['user_role'] ?? 0) === 1)
+);
+
+// Check if an authorized admin unlock override is active
+$hasAdminOverride = false;
+$ovrChk = $conn->query("
+    SELECT id FROM onboard_course_unlock_overrides 
+    WHERE user_id = {$userId} AND (moodle_course_id = {$courseId} OR module_id = 6) AND is_unlocked = 1 
+    ORDER BY id DESC LIMIT 1
+");
+if ($ovrChk && $ovrChk->num_rows > 0) {
+    $hasAdminOverride = true;
+}
+
+if (!$isTesterOrAdmin && !$hasAdminOverride && $totalReq > 0 && $totalDone < $totalReq) {
     http_response_code(403);
     echo json_encode([
         'success' => false,

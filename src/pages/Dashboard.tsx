@@ -192,6 +192,45 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
   const moodleData = moodleDataRaw ?? null;
   const isInitialLoading = Boolean(syncingLms && !moodleData);
 
+  // 3. Dedicated Assessment History Query (Direct from MySQL onboard_induction_assessment_attempts, <5ms)
+  const {
+    data: assessmentHistoryData,
+    isLoading: isAssessmentHistoryLoading,
+    refetch: refetchAssessmentHistory,
+  } = useQuery<{
+    success: boolean;
+    user_id: number;
+    employee?: any;
+    attempts_count: number;
+    max_attempts: number;
+    passing_score: number;
+    latest_score: number | null;
+    is_passed: boolean;
+    is_locked: boolean;
+    can_retake: boolean;
+    admin_unlocked?: boolean;
+    attempts: any[];
+    module?: any;
+  } | null>({
+    queryKey: ['assessment_history', user?.uid],
+    queryFn: async () => {
+      try {
+        const res = await apiGet<any>('/moodle/assessment_history.php');
+        if (res && res.success) {
+          return res;
+        }
+        return null;
+      } catch (_err) {
+        return null;
+      }
+    },
+    enabled: !!user?.uid,
+    staleTime: 5 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+
   const moodleError = useMemo(() => {
     if (!moodleData) return null;
     if (!moodleData.success && moodleData.error) return moodleData.error;
@@ -265,94 +304,96 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
     return { isOpen: false, url: null, title: '' };
   });
 
-    // Debounced, single refresh coordinator to eliminate redundant concurrent requests
-    const lastRefreshTimeRef = useRef<number>(0);
-    const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
-    const activePollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Debounced, single refresh coordinator to eliminate redundant concurrent requests
+  const lastRefreshTimeRef = useRef<number>(0);
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const activePollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-    const triggerUnifiedRefresh = useCallback((forceSync = false, courseId?: string | number | null) => {
-      const now = Date.now();
-      if (forceSync) {
-        forceSyncRef.current = true;
-        if (courseId) {
-          syncCourseIdRef.current = courseId;
-        }
+  const triggerUnifiedRefresh = useCallback((forceSync = false, courseId?: string | number | null) => {
+    const now = Date.now();
+    if (forceSync) {
+      forceSyncRef.current = true;
+      if (courseId) {
+        syncCourseIdRef.current = courseId;
       }
-      // Enforce minimum 2s interval between network refreshes
-      if (now - lastRefreshTimeRef.current < 2000) {
-        if (!refreshTimerRef.current) {
-          refreshTimerRef.current = setTimeout(() => {
-            refreshTimerRef.current = null;
-            lastRefreshTimeRef.current = Date.now();
-            fetchMoodleCourses();
-            refetchSummary();
-          }, 2000);
-        }
-        return;
+    }
+    // Enforce minimum 2s interval between network refreshes
+    if (now - lastRefreshTimeRef.current < 2000) {
+      if (!refreshTimerRef.current) {
+        refreshTimerRef.current = setTimeout(() => {
+          refreshTimerRef.current = null;
+          lastRefreshTimeRef.current = Date.now();
+          fetchMoodleCourses();
+          refetchSummary();
+          refetchAssessmentHistory();
+        }, 2000);
       }
-      lastRefreshTimeRef.current = now;
-      fetchMoodleCourses();
-      refetchSummary();
-    }, [fetchMoodleCourses, refetchSummary]);
+      return;
+    }
+    lastRefreshTimeRef.current = now;
+    fetchMoodleCourses();
+    refetchSummary();
+    refetchAssessmentHistory();
+  }, [fetchMoodleCourses, refetchSummary, refetchAssessmentHistory]);
 
-    const {
-      activeSession,
-      launchCourseWindow,
-      focusCourseWindow,
-      closeActiveSession,
-    } = useActiveCourseSession({
-      onCourseClosed: (closedCourseId) => triggerUnifiedRefresh(true, closedCourseId),
+  const {
+    activeSession,
+    launchCourseWindow,
+    focusCourseWindow,
+    closeActiveSession,
+  } = useActiveCourseSession({
+    onCourseClosed: (closedCourseId) => triggerUnifiedRefresh(true, closedCourseId),
+  });
+
+  const openPlayer = (url: string, title: string, itemOptions?: any) => {
+    if (IS_MAINTENANCE_MODE) {
+      toast({
+        title: "System Maintenance in Progress",
+        description: "Course launching and playback are temporarily suspended while platform maintenance is underway. Please check back shortly.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const cmid = itemOptions?.cmid || (url && url.match(/[?&]cm(?:id)?=(\d+)/)?.[1]);
+    const mode = itemOptions?.mode || (url && url.includes('mode=review') ? 'review' : undefined);
+    const newattempt = itemOptions?.newattempt || (url && (url.includes('newattempt=on') || url.includes('newattempt=1')) ? 'on' : undefined);
+    const scoid = itemOptions?.scoid || (url && url.match(/[?&]scoid=(\d+)/)?.[1]);
+    const currentorg = itemOptions?.organization || itemOptions?.currentorg || (url && url.match(/[?&]currentorg=([^&]+)/)?.[1]);
+    const courseid = itemOptions?.course_id || (url && url.match(/[?&]courseid=(\d+)/)?.[1]);
+    const moduleId = itemOptions?.module_id || (url && url.match(/[?&]module_id=(\d+)/)?.[1]);
+
+    const playParams = new URLSearchParams();
+    if (cmid) playParams.set('cmid', String(cmid));
+    if (title) playParams.set('title', title);
+    if (mode) playParams.set('mode', mode);
+    if (newattempt) playParams.set('newattempt', 'on');
+    if (scoid) playParams.set('scoid', String(scoid));
+    if (courseid) playParams.set('courseid', String(courseid));
+    if (moduleId) playParams.set('module_id', String(moduleId));
+    if (currentorg) playParams.set('currentorg', String(currentorg));
+    if (!cmid && url) playParams.set('url', url);
+
+    const playUrl = `${routerBase}/play?${playParams.toString()}`;
+
+    // Open course in dedicated separate window (not tab) with multi-tab coordination
+    const courseWin = launchCourseWindow(playUrl, title, {
+      cmid,
+      scoid,
+      courseid,
+      module_id: moduleId,
+      ...itemOptions,
     });
 
-    const openPlayer = (url: string, title: string, itemOptions?: any) => {
-      if (IS_MAINTENANCE_MODE) {
-        toast({
-          title: "System Maintenance in Progress",
-          description: "Course launching and playback are temporarily suspended while platform maintenance is underway. Please check back shortly.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const cmid = itemOptions?.cmid || (url && url.match(/[?&]cm(?:id)?=(\d+)/)?.[1]);
-      const mode = itemOptions?.mode || (url && url.includes('mode=review') ? 'review' : undefined);
-      const newattempt = itemOptions?.newattempt || (url && (url.includes('newattempt=on') || url.includes('newattempt=1')) ? 'on' : undefined);
-      const scoid = itemOptions?.scoid || (url && url.match(/[?&]scoid=(\d+)/)?.[1]);
-      const currentorg = itemOptions?.organization || itemOptions?.currentorg || (url && url.match(/[?&]currentorg=([^&]+)/)?.[1]);
-      const courseid = itemOptions?.course_id || (url && url.match(/[?&]courseid=(\d+)/)?.[1]);
-      const moduleId = itemOptions?.module_id || (url && url.match(/[?&]module_id=(\d+)/)?.[1]);
-
-      const playParams = new URLSearchParams();
-      if (cmid) playParams.set('cmid', String(cmid));
-      if (title) playParams.set('title', title);
-      if (mode) playParams.set('mode', mode);
-      if (newattempt) playParams.set('newattempt', 'on');
-      if (scoid) playParams.set('scoid', String(scoid));
-      if (courseid) playParams.set('courseid', String(courseid));
-      if (moduleId) playParams.set('module_id', String(moduleId));
-      if (currentorg) playParams.set('currentorg', String(currentorg));
-      if (!cmid && url) playParams.set('url', url);
-
-      const playUrl = `${routerBase}/play?${playParams.toString()}`;
-
-      // Open course in dedicated separate window (not tab) with multi-tab coordination
-      const courseWin = launchCourseWindow(playUrl, title, {
-        cmid,
-        scoid,
-        courseid,
-        module_id: moduleId,
-        ...itemOptions,
-      });
-
-      if (!courseWin) {
-        // Fallback: If browser popup blocker intercepts, open inside in-portal modal
-        const state = { isOpen: true, url, title };
-        try {
-          sessionStorage.setItem('hexalearn_active_scorm', JSON.stringify(state));
-        } catch { }
-        setPlayerState(state);
-      }
-    };
+    if (!courseWin) {
+      // Fallback: If browser popup blocker intercepts, open inside in-portal modal
+      const state = { isOpen: true, url, title };
+      try {
+        sessionStorage.setItem('hexalearn_active_scorm', JSON.stringify(state));
+      } catch { }
+      setPlayerState(state);
+    }
+  };
 
   const handleLaunchModule = (item: any) => {
     if (!item || item.status === 'locked' || item.is_locked) return;
@@ -841,14 +882,23 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
   );
 
   const assessmentModule = useMemo(() => {
+    if (assessmentHistoryData?.module) {
+      return {
+        ...(matchedAssessment || {}),
+        ...assessmentHistoryData.module,
+        url: assessmentHistoryData.module.url || `${API_BASE}/moodle/launch.php?cmid=4&courseid=3`,
+        retake_url: assessmentHistoryData.module.retake_url || `${API_BASE}/moodle/launch.php?cmid=4&courseid=3&newattempt=on`,
+        review_url: assessmentHistoryData.module.review_url || `${API_BASE}/moodle/launch.php?cmid=4&courseid=3&mode=review`,
+      };
+    }
     if (matchedAssessment) return matchedAssessment;
     return {
       id: 9999,
       cmid: 4,
       title: 'Induction Assessment',
       subtitle: 'Final Induction Assessment',
-      duration: '20 min',
-      duration_minutes: 20,
+      duration: '11 min',
+      duration_minutes: 11,
       is_assessment: true,
       status: 'available' as const,
       url: `${API_BASE}/moodle/launch.php?cmid=4&courseid=3`,
@@ -860,7 +910,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
       attempts: 0,
       attempts_history: []
     };
-  }, [matchedAssessment]);
+  }, [matchedAssessment, assessmentHistoryData]);
 
   // Learning Modules ONLY for SCORM Module Report (Strictly excludes assessments/quizzes)
   const scormLearningModules = useMemo(() => {
@@ -891,6 +941,12 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
   };
 
   const displayedAttempts = useMemo(() => {
+    if (assessmentHistoryData?.attempts && Array.isArray(assessmentHistoryData.attempts) && assessmentHistoryData.attempts.length > 0) {
+      return assessmentHistoryData.attempts.map((att: any) => ({
+        ...att,
+        formattedDuration: att.formattedDuration || formatDurationStr(att.total_time)
+      }));
+    }
     if (assessmentModule?.attempts_history && assessmentModule.attempts_history.length > 0) {
       return assessmentModule.attempts_history
         .filter((att: any) => {
@@ -906,7 +962,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
         }));
     }
     return [];
-  }, [assessmentModule]);
+  }, [assessmentHistoryData, assessmentModule]);
 
   // Overall onboarding progress metrics (dynamically computed from live Moodle LMS records)
   const totalAssignedActivities = displayModules.length;
@@ -979,21 +1035,25 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
     ? Math.round((notStartedActivitiesCount / totalAssignedActivities) * 100)
     : 0;
 
-  // Assessment Score and Requirements matching reference image
+  // Assessment Score and Requirements matching reference image & assessment_history.php
   const latestAttempt = displayedAttempts.length > 0 ? displayedAttempts[displayedAttempts.length - 1] : null;
-  const hasAttempted = displayedAttempts.length > 0;
-  const lastScore = latestAttempt?.score !== undefined && latestAttempt?.score !== null
+  const hasAttempted = displayedAttempts.length > 0 || (assessmentHistoryData?.attempts_count ?? 0) > 0;
+  const lastScore = assessmentHistoryData?.latest_score ?? (latestAttempt?.score !== undefined && latestAttempt?.score !== null
     ? Number(latestAttempt.score)
-    : null;
-  const passingScore = assessmentModule?.passing_score ?? 80;
+    : null);
+  const passingScore = assessmentHistoryData?.passing_score ?? (assessmentModule?.passing_score ?? 80);
   const isPassed = Boolean(
+    assessmentHistoryData?.is_passed ||
     (lastScore !== null && lastScore >= passingScore) ||
     assessmentModule?.status === 'completed' ||
     latestAttempt?.is_passed
   );
+  const isAssessmentLocked = Boolean(
+    assessmentHistoryData?.is_locked ??
+    (!assessmentModule || assessmentModule.is_locked || assessmentModule.status === 'locked')
+  );
   const isFailed = Boolean(hasAttempted && !isPassed && lastScore !== null && lastScore < passingScore);
   const neededMore = lastScore !== null ? Math.max(0, passingScore - lastScore) : null;
-  const isAssessmentLocked = Boolean(!assessmentModule || assessmentModule.is_locked || assessmentModule.status === 'locked');
 
   // Next Recommended Activity (Single active uncompleted activity for Dashboard overview)
   const nextRecommendedActivity = useMemo(() => {
@@ -1364,7 +1424,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                   </h2>
                   {activeTab === 'attempt_history' && (
                     <span className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200/80 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 shadow-2xs">
-                      Attempts: {displayedAttempts.length}
+                      Attempts: {assessmentHistoryData?.attempts_count ?? displayedAttempts.length}
                     </span>
                   )}
                 </div>
@@ -1845,15 +1905,6 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                       )}
 
                       <div className="flex items-center justify-center sm:justify-start gap-2.5 pt-0.5 flex-wrap">
-                        {assessmentModule && !isAssessmentLocked && !isPassed && (
-                          <button
-                            onClick={() => handleLaunchModule(assessmentModule)}
-                            className="px-4 py-2 rounded-xl bg-[#00A389] hover:bg-[#008f77] text-white text-xs font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Play className="w-3.5 h-3.5 fill-white text-white" />
-                            <span>{hasAttempted ? 'Retake Assessment →' : 'Take Assessment →'}</span>
-                          </button>
-                        )}
                         <button
                           onClick={() => handleTabChange('attempt_history')}
                           className="px-4 py-2 rounded-xl border border-sky-300 hover:bg-sky-50 text-sky-700 text-xs font-bold transition-all shadow-2xs inline-flex items-center gap-1.5 cursor-pointer hover:shadow-xs"
@@ -1896,53 +1947,52 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                       item.title.toLowerCase().includes('quiz')
                     );
 
-                      const isItemLocked = item.status !== 'completed' && Boolean(item.status === 'locked' || item.is_locked);
+                    const isItemLocked = item.status !== 'completed' && Boolean(item.status === 'locked' || item.is_locked);
 
-                      return (
-                        <div
-                          key={item.id || idx}
-                          onClick={() => {
-                            if (isItemLocked) {
-                              toast({
-                                title: "Course Locked",
-                                description: item.locked_reason || "This course is currently locked.",
-                                variant: "destructive",
-                              });
-                              return;
-                            }
-                            if (item.course_id || item.cmid || item.id) {
-                              navigate(`/modules/${item.course_id || item.cmid || item.id}`);
-                            } else {
-                              navigate('/modules');
-                            }
-                          }}
-                          className={`py-3 px-2 sm:px-3 flex items-center justify-between gap-3 sm:gap-4 rounded-xl transition-colors ${
-                            isItemLocked
-                              ? 'opacity-70 cursor-not-allowed hover:bg-slate-50/50'
-                              : 'hover:bg-slate-50/80 cursor-pointer group'
+                    return (
+                      <div
+                        key={item.id || idx}
+                        onClick={() => {
+                          if (isItemLocked) {
+                            toast({
+                              title: "Course Locked",
+                              description: item.locked_reason || "This course is currently locked.",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          if (item.course_id || item.cmid || item.id) {
+                            navigate(`/modules/${item.course_id || item.cmid || item.id}`);
+                          } else {
+                            navigate('/modules');
+                          }
+                        }}
+                        className={`py-3 px-2 sm:px-3 flex items-center justify-between gap-3 sm:gap-4 rounded-xl transition-colors ${isItemLocked
+                          ? 'opacity-70 cursor-not-allowed hover:bg-slate-50/50'
+                          : 'hover:bg-slate-50/80 cursor-pointer group'
                           }`}
-                        >
-                          {/* Thumbnail & Title Info */}
-                          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                            <div className="h-11 w-16 sm:h-12 sm:w-20 rounded-xl overflow-hidden bg-slate-100 border border-slate-200/60 shrink-0 shadow-2xs relative">
-                              <img
-                                src={getCourseThumbnail(item)}
-                                alt={item.title}
-                                className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  const cId = item.course_id || item.moodle_course_id || 2;
-                                  if (!target.src.includes('course_image.php')) {
-                                    target.src = `${API_BASE}/moodle/course_image.php?course_id=${cId}`;
-                                  }
-                                }}
-                              />
-                              {isItemLocked && (
-                                <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[0.5px] flex items-center justify-center">
-                                  <Lock className="h-3.5 w-3.5 text-white/90" />
-                                </div>
-                              )}
-                            </div>
+                      >
+                        {/* Thumbnail & Title Info */}
+                        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                          <div className="h-11 w-16 sm:h-12 sm:w-20 rounded-xl overflow-hidden bg-slate-100 border border-slate-200/60 shrink-0 shadow-2xs relative">
+                            <img
+                              src={getCourseThumbnail(item)}
+                              alt={item.title}
+                              className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                const cId = item.course_id || item.moodle_course_id || 2;
+                                if (!target.src.includes('course_image.php')) {
+                                  target.src = `${API_BASE}/moodle/course_image.php?course_id=${cId}`;
+                                }
+                              }}
+                            />
+                            {isItemLocked && (
+                              <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[0.5px] flex items-center justify-center">
+                                <Lock className="h-3.5 w-3.5 text-white/90" />
+                              </div>
+                            )}
+                          </div>
 
                           <div className="min-w-0">
                             <h4 className="text-xs sm:text-sm font-bold text-slate-800 truncate group-hover:text-[#00A389] transition-colors">
@@ -2428,11 +2478,19 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                           <th className="py-2.5 px-3">Result</th>
                           <th className="py-2.5 px-3">Duration</th>
                           <th className="py-2.5 px-3">Date & Time</th>
-                          <th className="py-2.5 px-3 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {displayedAttempts.length > 0 ? (
+                        {isAssessmentHistoryLoading && displayedAttempts.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="py-8 text-center text-slate-400">
+                              <div className="flex items-center justify-center gap-2">
+                                <div className="h-4 w-4 border-2 border-[#00A389] border-t-transparent rounded-full animate-spin" />
+                                <span className="text-xs font-semibold text-slate-600">Loading assessment history...</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : displayedAttempts.length > 0 ? (
                           displayedAttempts.map((row: any, idx: number) => {
                             const isPassed = row.is_passed || row.result === 'Passed';
                             const isFailed = row.is_failed || row.result === 'Failed';
@@ -2481,36 +2539,12 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                                 <td className="py-3.5 px-3 text-slate-500 font-medium text-[11px]">
                                   {row.date || '—'}
                                 </td>
-                                <td className="py-3.5 px-3 text-right">
-                                  <div className="flex items-center justify-end gap-1.5">
-                                    {assessmentModule && (
-                                      <>
-                                        <button
-                                          onClick={() => handleReviewModule(assessmentModule)}
-                                          className="text-[11px] font-bold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg transition-all inline-flex items-center gap-1 cursor-pointer shadow-2xs"
-                                          title="Review Quiz"
-                                        >
-                                          Review Quiz
-                                        </button>
-                                        {!isPassed && (
-                                          <button
-                                            onClick={() => handleRetakeModule(assessmentModule)}
-                                            className="text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 px-2.5 py-1 rounded-lg transition-all inline-flex items-center gap-1 cursor-pointer shadow-xs"
-                                            title="Retake Quiz / Assessment"
-                                          >
-                                            Retake Quiz →
-                                          </button>
-                                        )}
-                                      </>
-                                    )}
-                                  </div>
-                                </td>
                               </tr>
                             );
                           })
                         ) : (
                           <tr>
-                            <td colSpan={6} className="py-8 text-center text-slate-400">
+                            <td colSpan={5} className="py-8 text-center text-slate-400">
                               <p className="font-semibold text-slate-600">No attempts recorded yet.</p>
                               <p className="text-[11px] text-slate-400 mt-1">Take the assessment to record your attempt and score in real time.</p>
                             </td>

@@ -174,14 +174,92 @@ if (!$moodleUserId && function_exists('autoSyncMoodleUser')) {
     }
 }
 
-// 3.5 Serve 60-second per-target-employee cache for admin report (unless force_refresh=1)
+/**
+ * Authoritative Induction Assessment Attempts Resolver
+ * Queries onboard_induction_assessment_attempts for this employee
+ */
+if (!function_exists('getInductionAttemptsForUser')) {
+    function getInductionAttemptsForUser($conn, $userId) {
+        $attempts = [];
+        if (!$conn || !$userId) return $attempts;
+        $hasPhaseCol = false;
+        $chkPh = $conn->query("SHOW COLUMNS FROM `onboard_induction_assessment_attempts` LIKE 'phase'");
+        if ($chkPh && $chkPh->num_rows > 0) {
+            $hasPhaseCol = true;
+        }
+        $phaseSelect = $hasPhaseCol ? "phase," : "1 AS phase,";
+        $stmt = $conn->prepare("
+            SELECT id, {$phaseSelect} attempt, Quiz_score, passing_score, result, is_locked, email_sent, email_to, email_cc, attempted_at
+            FROM onboard_induction_assessment_attempts
+            WHERE user_id = ?
+            ORDER BY phase ASC, attempt ASC, id ASC
+        ");
+        if ($stmt) {
+            $stmt->bind_param("i", $userId);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($row = $res->fetch_assoc()) {
+                $score = (float)$row['Quiz_score'];
+                $pScore = !empty($row['passing_score']) ? (int)$row['passing_score'] : 80;
+                $isPassed = ($row['result'] === 'Passed' || $score >= $pScore);
+                $isFailed = !$isPassed;
+                
+                $attDate = '';
+                if (!empty($row['attempted_at'])) {
+                    try {
+                        $dt = new DateTime($row['attempted_at'], new DateTimeZone('UTC'));
+                        $dt->setTimezone(new DateTimeZone('Asia/Kolkata'));
+                        $attDate = $dt->format('M j, Y, g:i A');
+                    } catch (\Exception $e) {
+                        $attDate = date('M j, Y, g:i A', strtotime($row['attempted_at']));
+                    }
+                }
+                
+                $attempts[] = [
+                    'id' => (int)$row['id'],
+                    'phase' => (int)($row['phase'] ?? 1),
+                    'module_id' => 6,
+                    'module_title' => 'Employee Assessment',
+                    'attempt' => (int)$row['attempt'],
+                    'score' => $score,
+                    'passing_score' => $pScore,
+                    'result' => $isPassed ? 'Passed' : 'Failed',
+                    'is_passed' => $isPassed,
+                    'is_failed' => $isFailed,
+                    'is_locked' => (bool)$row['is_locked'],
+                    'email_sent' => (bool)$row['email_sent'],
+                    'email_to' => $row['email_to'],
+                    'email_cc' => $row['email_cc'],
+                    'duration' => '—',
+                    'date' => $attDate,
+                    'attempted_at' => $row['attempted_at']
+                ];
+            }
+            $stmt->close();
+        }
+        return $attempts;
+    }
+}
+
+// 3.5 Serve 600-second (10-minute) per-target-employee cache for admin report (unless force_refresh=1)
 $empProgCacheDir = __DIR__ . '/../moodle/cache';
 $empProgCacheFile = $empProgCacheDir . '/admin_emp_prog_' . (int)$employeeHexaUid . '.json';
-if (empty($_GET['force_refresh']) && file_exists($empProgCacheFile) && (time() - filemtime($empProgCacheFile)) < 60) {
+if (empty($_GET['force_refresh']) && file_exists($empProgCacheFile) && (time() - filemtime($empProgCacheFile)) < 600) {
     $cachedEmpJson = @file_get_contents($empProgCacheFile);
     if ($cachedEmpJson) {
-        echo $cachedEmpJson;
-        exit;
+        $cData = json_decode($cachedEmpJson, true);
+        if (is_array($cData) && !empty($cData['success'])) {
+            $freshAtt = getInductionAttemptsForUser($conn, $employeeHexaUid);
+            if (!empty($freshAtt)) {
+                $cData['attempts'] = $freshAtt;
+                if (isset($cData['progress_summary'])) {
+                    $cData['progress_summary']['total_attempts'] = count($freshAtt);
+                }
+            }
+            header('Content-Type: application/json; charset=UTF-8');
+            echo json_encode($cData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
     }
 }
 
@@ -681,14 +759,25 @@ if ($moodleUserId) {
 
 // 5. Fallback: If Moodle API returned empty or failed, fetch from MySQL database tables
 if (!$moodleSuccess || empty($modules)) {
-    // 3.5 Serve 60-second per-target-employee cache for admin report (unless force_refresh=1)
+    // 3.5 Serve 600-second (10-minute) per-target-employee cache for admin report (unless force_refresh=1)
 $empProgCacheDir = __DIR__ . '/../moodle/cache';
 $empProgCacheFile = $empProgCacheDir . '/admin_emp_prog_' . (int)$employeeHexaUid . '.json';
-if (empty($_GET['force_refresh']) && file_exists($empProgCacheFile) && (time() - filemtime($empProgCacheFile)) < 60) {
+if (empty($_GET['force_refresh']) && file_exists($empProgCacheFile) && (time() - filemtime($empProgCacheFile)) < 600) {
     $cachedEmpJson = @file_get_contents($empProgCacheFile);
     if ($cachedEmpJson) {
-        echo $cachedEmpJson;
-        exit;
+        $cData = json_decode($cachedEmpJson, true);
+        if (is_array($cData) && !empty($cData['success'])) {
+            $freshAtt = getInductionAttemptsForUser($conn, $employeeHexaUid);
+            if (!empty($freshAtt)) {
+                $cData['attempts'] = $freshAtt;
+                if (isset($cData['progress_summary'])) {
+                    $cData['progress_summary']['total_attempts'] = count($freshAtt);
+                }
+            }
+            header('Content-Type: application/json; charset=UTF-8');
+            echo json_encode($cData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
     }
 }
 
@@ -921,6 +1010,11 @@ $overallPercent = $totalModCount > 0 ? round(($completedModCount / $totalModCoun
 
 if (function_exists('flushMoodleApiUsage')) {
     flushMoodleApiUsage($conn, 'admin_employee_report', $currentUserId, $moodleUserId);
+}
+
+$freshAtt = getInductionAttemptsForUser($conn, $employeeHexaUid);
+if (!empty($freshAtt)) {
+    $attempts = $freshAtt;
 }
 
 $empReportJson = json_encode([

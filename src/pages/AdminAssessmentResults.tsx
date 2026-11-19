@@ -296,11 +296,20 @@ export default function AdminAssessmentResults() {
           </div>
         </div>
 
-        {/* Top Metric Cards */}
+        {/* Top Metric Cards (Interactive Click-to-Filter) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-          <Card className="border shadow-2xs">
+          <Card 
+            onClick={() => {
+              setStatusFilter("all");
+              setPage(1);
+            }}
+            className={`border shadow-2xs cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 select-none ${
+              statusFilter === "all" ? "ring-2 ring-slate-900 dark:ring-slate-100 border-transparent shadow-sm" : "hover:border-slate-300"
+            }`}
+            title="Click to view all candidates & attempts"
+          >
             <CardContent className="p-4 flex flex-col justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Total Candidates</span>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Total Candidates</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-2xl font-bold text-slate-800 dark:text-slate-100">
                   {metrics.total_candidates}
@@ -310,9 +319,18 @@ export default function AdminAssessmentResults() {
             </CardContent>
           </Card>
 
-          <Card className="border shadow-2xs">
+          <Card 
+            onClick={() => {
+              setStatusFilter("all");
+              setPage(1);
+            }}
+            className={`border shadow-2xs cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 select-none ${
+              statusFilter === "all" ? "ring-2 ring-blue-500/50 border-transparent shadow-sm" : "hover:border-blue-300"
+            }`}
+            title="Click to view all attempts"
+          >
             <CardContent className="p-4 flex flex-col justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Total Attempts</span>
+              <span className="text-xs font-semibold text-muted-foreground">Total Attempts</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-2xl font-bold text-slate-800 dark:text-slate-100">
                   {metrics.total_attempts}
@@ -322,9 +340,18 @@ export default function AdminAssessmentResults() {
             </CardContent>
           </Card>
 
-          <Card className="border shadow-2xs bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-800/40">
+          <Card 
+            onClick={() => {
+              setStatusFilter("passed");
+              setPage(1);
+            }}
+            className={`border shadow-2xs bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-800/40 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 select-none ${
+              statusFilter === "passed" ? "ring-2 ring-emerald-600 dark:ring-emerald-400 border-transparent shadow-sm" : "hover:border-emerald-400"
+            }`}
+            title="Click to filter passed candidates (Score ≥ 80%)"
+          >
             <CardContent className="p-4 flex flex-col justify-between">
-              <span className="text-xs font-medium text-emerald-800 dark:text-emerald-300">Passed (≥ 80%)</span>
+              <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Passed (≥ 80%)</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">
                   {metrics.total_passed}
@@ -334,9 +361,18 @@ export default function AdminAssessmentResults() {
             </CardContent>
           </Card>
 
-          <Card className="border shadow-2xs bg-amber-50/40 dark:bg-amber-950/20 border-amber-200/60 dark:border-amber-800/40">
+          <Card 
+            onClick={() => {
+              setStatusFilter("failed");
+              setPage(1);
+            }}
+            className={`border shadow-2xs bg-amber-50/40 dark:bg-amber-950/20 border-amber-200/60 dark:border-amber-800/40 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 select-none ${
+              statusFilter === "failed" ? "ring-2 ring-amber-600 dark:ring-amber-400 border-transparent shadow-sm" : "hover:border-amber-400"
+            }`}
+            title="Click to filter failed attempt 1 candidates"
+          >
             <CardContent className="p-4 flex flex-col justify-between">
-              <span className="text-xs font-medium text-amber-800 dark:text-amber-300">Failed (Att 1)</span>
+              <span className="text-xs font-semibold text-amber-800 dark:text-amber-300">Failed (Att 1)</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-2xl font-bold text-amber-700 dark:text-amber-400">
                   {metrics.total_failed}
@@ -346,9 +382,18 @@ export default function AdminAssessmentResults() {
             </CardContent>
           </Card>
 
-          <Card className="border shadow-2xs bg-rose-50/40 dark:bg-rose-950/20 border-rose-200/60 dark:border-rose-800/40">
+          <Card 
+            onClick={() => {
+              setStatusFilter("locked");
+              setPage(1);
+            }}
+            className={`border shadow-2xs bg-rose-50/40 dark:bg-rose-950/20 border-rose-200/60 dark:border-rose-800/40 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 select-none ${
+              statusFilter === "locked" ? "ring-2 ring-rose-600 dark:ring-rose-400 border-transparent shadow-sm" : "hover:border-rose-400"
+            }`}
+            title="Click to filter locked out candidates (2 Failed Attempts)"
+          >
             <CardContent className="p-4 flex flex-col justify-between">
-              <span className="text-xs font-medium text-rose-800 dark:text-rose-300">Locked (Fail 2/2)</span>
+              <span className="text-xs font-semibold text-rose-800 dark:text-rose-300">Locked (Fail 2/2)</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-2xl font-bold text-rose-700 dark:text-rose-400">
                   {metrics.total_locked}
@@ -358,9 +403,18 @@ export default function AdminAssessmentResults() {
             </CardContent>
           </Card>
 
-          <Card className="border shadow-2xs">
+          <Card 
+            onClick={() => {
+              setStatusFilter("emails_sent");
+              setPage(1);
+            }}
+            className={`border shadow-2xs cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 select-none ${
+              statusFilter === "emails_sent" ? "ring-2 ring-purple-600 dark:ring-purple-400 border-transparent shadow-sm" : "hover:border-purple-300"
+            }`}
+            title="Click to filter records where alert email was sent"
+          >
             <CardContent className="p-4 flex flex-col justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Alert Emails Sent</span>
+              <span className="text-xs font-semibold text-muted-foreground">Alert Emails Sent</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-2xl font-bold text-purple-700 dark:text-purple-400">
                   {metrics.total_emails_sent}
@@ -381,7 +435,8 @@ export default function AdminAssessmentResults() {
                   { id: "all", label: "All Results" },
                   { id: "passed", label: "Passed (≥ 80%)" },
                   { id: "failed", label: "Failed (Attempt 1)" },
-                  { id: "locked", label: "Locked Out" }
+                  { id: "locked", label: "Locked Out" },
+                  { id: "emails_sent", label: "Alert Emails Sent" }
                 ].map((tab) => (
                   <button
                     key={tab.id}

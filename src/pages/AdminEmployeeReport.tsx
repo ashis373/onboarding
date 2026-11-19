@@ -91,13 +91,25 @@ const formatDuration = (timeStr?: string) => {
   return timeStr;
 };
 
-// Format date time helper
+// Format date time helper (Converts to Indian Standard Time Asia/Kolkata)
 const formatDateTime = (dateVal?: string | number | null) => {
   if (!dateVal) return null;
   try {
-    const d = typeof dateVal === 'number' ? new Date(dateVal * 1000) : new Date(dateVal);
+    let d: Date;
+    if (typeof dateVal === 'number') {
+      d = new Date(dateVal * 1000);
+    } else {
+      const s = String(dateVal).trim();
+      // If already formatted like "Nov 19, 2026, 12:55 PM", return directly
+      if (/^[A-Za-z]{3}\s+\d{1,2},\s+\d{4}/.test(s) && !s.includes('T')) {
+        return s;
+      }
+      const isoStr = (s.endsWith('Z') || s.includes('+') || s.includes('T')) ? s : s.replace(' ', 'T') + 'Z';
+      d = new Date(isoStr);
+    }
     if (isNaN(d.getTime())) return String(dateVal);
-    return d.toLocaleDateString('en-US', {
+    return d.toLocaleString('en-US', {
+      timeZone: 'Asia/Kolkata',
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -214,18 +226,55 @@ const AdminEmployeeReport = () => {
     }
   }, [queryClient, refetchReport, targetUid]);
 
-  const learningModulesOnly = (data?.modules || []).filter((m) =>
-    !m.is_assessment &&
-    !m.title.toLowerCase().includes('assess') &&
-    !m.title.toLowerCase().includes('quiz') &&
-    !m.title.toLowerCase().includes('employee_assessment') &&
-    m.title.trim().toLowerCase() !== 'employee onboarding module'
-  );
+  const [reportTab, setReportTab] = useState<'courses' | 'assessment'>('courses');
 
-  const validAttempts = (data?.attempts || []).filter((att) => {
-    const isGhost = att.score === null && (!att.duration || att.duration === '0s') && (!att.date || att.date === '—');
-    return !isGhost;
+  // Fallback query to ensure assessment attempts from onboard_induction_assessment_attempts always appear
+  const { data: directAssessmentData } = useQuery<{
+    success: boolean;
+    attempts?: any[];
+  } | null>({
+    queryKey: ['admin_induction_attempts', targetUid],
+    queryFn: async () => {
+      try {
+        const res = await apiGet<any>(`/moodle/assessment_history.php?uid=${targetUid}`);
+        if (res && res.success && Array.isArray(res.attempts)) {
+          return res;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!targetUid,
+    staleTime: 5000,
   });
+
+  const learningModulesOnly = useMemo(() => {
+    return (data?.modules || []).filter((m) =>
+      !m.is_assessment &&
+      !m.title.toLowerCase().includes('assess') &&
+      !m.title.toLowerCase().includes('quiz') &&
+      !m.title.toLowerCase().includes('employee_assessment') &&
+      m.title.trim().toLowerCase() !== 'employee onboarding module'
+    );
+  }, [data?.modules]);
+
+  const allAttempts = useMemo(() => {
+    if (data?.attempts && data.attempts.length > 0) {
+      return data.attempts;
+    }
+    if (directAssessmentData?.attempts && directAssessmentData.attempts.length > 0) {
+      return directAssessmentData.attempts;
+    }
+    return [];
+  }, [data?.attempts, directAssessmentData?.attempts]);
+
+  const validAttempts = useMemo(() => {
+    return allAttempts.filter((att: any) => {
+      const isGhost = att.score === null && (!att.duration || att.duration === '0s') && (!att.date || att.date === '—');
+      return !isGhost;
+    });
+  }, [allAttempts]);
 
   return (
     <Layout isAdmin>
@@ -408,7 +457,11 @@ const AdminEmployeeReport = () => {
               </div>
 
               {/* Assessment Attempts */}
-              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between gap-3">
+              <div 
+                onClick={() => setReportTab('assessment')}
+                className="bg-white border border-slate-200/80 hover:border-amber-300 rounded-2xl p-4 shadow-2xs flex flex-col justify-between gap-3 cursor-pointer transition-all"
+                title="Click to view assessment attempts"
+              >
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Assessment Attempts</div>
@@ -421,7 +474,7 @@ const AdminEmployeeReport = () => {
                   </div>
                 </div>
                 <div className="text-[10px] text-slate-400 font-medium">
-                  Recorded permanently in LMS
+                  Recorded in MySQL database
                 </div>
               </div>
 
@@ -444,8 +497,38 @@ const AdminEmployeeReport = () => {
               </div>
             </div>
 
+            {/* 2.5 View Tab Switcher: Courses (Default) | Assessment */}
+            <div className="flex items-center gap-2 pt-1 pb-1">
+              <button
+                type="button"
+                onClick={() => setReportTab('courses')}
+                className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all inline-flex items-center gap-2 cursor-pointer shadow-2xs ${
+                  reportTab === 'courses'
+                    ? 'bg-[#00A389] text-white shadow-sm ring-2 ring-[#00A389]/30'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/90 hover:border-slate-300'
+                }`}
+              >
+                <BookOpen className="h-4 w-4" />
+                <span>Courses</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportTab('assessment')}
+                className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all inline-flex items-center gap-2 cursor-pointer shadow-2xs ${
+                  reportTab === 'assessment'
+                    ? 'bg-[#00A389] text-white shadow-sm ring-2 ring-[#00A389]/30'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/90 hover:border-slate-300'
+                }`}
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span>Assessment</span>
+              </button>
+            </div>
+
             {/* 3. Table 1: SCORM Learning & Module Progress Report */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-2xs space-y-4">
+            {reportTab === 'courses' && (
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-2xs space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 flex-wrap gap-2">
                 <div className="flex items-center gap-2.5">
                   <div className="h-8 w-8 rounded-lg bg-[#E6F7F4] text-[#00A389] flex items-center justify-center border border-[#00A389]/30">
@@ -596,8 +679,10 @@ const AdminEmployeeReport = () => {
                 </table>
               </div>
             </div>
+            )}
 
             {/* 4. Table 2: Assessment Attempt History */}
+            {reportTab === 'assessment' && (
             <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-2xs space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 flex-wrap gap-2">
                 <div className="flex items-center gap-2.5">
@@ -625,7 +710,6 @@ const AdminEmployeeReport = () => {
                       <th className="py-2.5 px-3">Attempt</th>
                       <th className="py-2.5 px-3">Score</th>
                       <th className="py-2.5 px-3">Result</th>
-                      <th className="py-2.5 px-3">Duration</th>
                       <th className="py-2.5 px-3">Date & Time</th>
                     </tr>
                   </thead>
@@ -639,8 +723,21 @@ const AdminEmployeeReport = () => {
                         return (
                           <tr key={att.id || idx} className="hover:bg-slate-50/60 transition-colors">
                             <td className="py-3 px-3">
-                              <div className="font-bold text-slate-800">Attempt {attemptNum}</div>
-                              <div className="text-[10px] text-slate-400">{attemptNum === 1 ? 'Initial' : 'Retake'}</div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {att.phase && att.phase > 1 ? (
+                                  <span className="text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded">
+                                    Phase {att.phase}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded">
+                                    Phase 1
+                                  </span>
+                                )}
+                                <span className="font-bold text-slate-800">Attempt {attemptNum}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {att.phase && att.phase > 1 ? `Post-Unlock Retake (Phase ${att.phase})` : (attemptNum === 1 ? 'Initial Attempt' : '2nd Attempt')}
+                              </div>
                             </td>
                             <td className="py-3 px-3">
                               <span className={`font-black text-sm ${isPassed ? 'text-emerald-700' : 'text-red-600'}`}>
@@ -662,9 +759,6 @@ const AdminEmployeeReport = () => {
                                 </span>
                               )}
                             </td>
-                            <td className="py-3 px-3 font-semibold text-slate-600">
-                              {formatDuration(att.duration)}
-                            </td>
                             <td className="py-3 px-3 text-slate-600 font-medium">
                               {formatDateTime(att.date || att.attempted_at) || '—'}
                             </td>
@@ -673,7 +767,7 @@ const AdminEmployeeReport = () => {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={5} className="py-8 text-center text-slate-400 font-medium">
+                        <td colSpan={4} className="py-8 text-center text-slate-400 font-medium">
                           No assessment attempts recorded yet for this employee.
                         </td>
                       </tr>
@@ -682,6 +776,7 @@ const AdminEmployeeReport = () => {
                 </table>
               </div>
             </div>
+            )}
 
 
           </>

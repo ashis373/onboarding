@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS `onboard_induction_assessment_attempts` (
   `course_id` INT(11) NOT NULL DEFAULT 3 COMMENT 'Moodle Course ID',
   `module_id` INT(11) DEFAULT NULL COMMENT 'onboard_modules ID',
   `student_id` VARCHAR(100) DEFAULT NULL COMMENT 'SCORM cmi.core.student_id',
+  `phase` INT(11) NOT NULL DEFAULT 1 COMMENT '1=Initial Induction, 2=Retake after Admin Unlock',
   `attempt` INT(11) NOT NULL DEFAULT 1 COMMENT 'Storyline attempt variable (1, 2)',
   `Quiz_score` DECIMAL(5,2) NOT NULL DEFAULT 0.00 COMMENT 'Storyline Quiz_score variable',
   `passing_score` INT(11) NOT NULL DEFAULT 80 COMMENT 'Pass mark threshold (80)',
@@ -150,10 +151,20 @@ CREATE TABLE IF NOT EXISTS `onboard_induction_assessment_attempts` (
   `email_cc` VARCHAR(255) DEFAULT NULL COMMENT 'CC recipients',
   `attempted_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_user_attempt` (`user_id`, `attempt`),
+  KEY `idx_user_phase_attempt` (`user_id`, `phase`, `attempt`),
   KEY `idx_course_id` (`course_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ");
+
+// Auto-migrate: check if `phase` column exists in table, add if missing
+$colChk = $conn->query("SHOW COLUMNS FROM `onboard_induction_assessment_attempts` LIKE 'phase'");
+if ($colChk && $colChk->num_rows === 0) {
+    @$conn->query("
+        ALTER TABLE `onboard_induction_assessment_attempts` 
+        ADD COLUMN `phase` INT(11) NOT NULL DEFAULT 1 COMMENT '1=Initial Induction, 2=Retake after Admin Unlock' AFTER `student_id`,
+        ADD INDEX `idx_user_phase_attempt` (`user_id`, `phase`, `attempt`)
+    ");
+}
 
 // 5. Enforce 10 Induction Course Prerequisites
 // All 10 active learning modules must have is_completed = 1
@@ -175,10 +186,8 @@ $prereqRow = $prereqRes ? $prereqRes->fetch_assoc() : null;
 $totalReq = (int)($prereqRow['total_req'] ?? 10);
 $totalDone = (int)($prereqRow['total_done'] ?? 0);
 
-$isTesterOrAdmin = (
-    in_array((string)$userId, ['205', '26', '64'], true) ||
-    strtolower(trim((string)($employee['username'] ?? ''))) === 'ashisr' ||
-    strtoupper(trim((string)($employee['emp_code'] ?? ''))) === 'HL078' ||
+$isAdmin = (
+    in_array((string)$userId, ['26', '64'], true) ||
     ((int)($employee['user_role'] ?? 0) === 1)
 );
 
@@ -193,7 +202,7 @@ if ($ovrChk && $ovrChk->num_rows > 0) {
     $hasAdminOverride = true;
 }
 
-if (!$isTesterOrAdmin && !$hasAdminOverride && $totalReq > 0 && $totalDone < $totalReq) {
+if (!$isAdmin && !$hasAdminOverride && $totalReq > 0 && $totalDone < $totalReq) {
     http_response_code(403);
     echo json_encode([
         'success' => false,
@@ -219,67 +228,97 @@ if ($mChk && $mRow = $mChk->fetch_assoc()) {
 }
 
 // 6. Upfront Lockout & Already-Passed Guard
-// Check if user has already passed
+// Check if user has already passed - if passed, permanently locked
 $passChk = $conn->query("
     SELECT id, Quiz_score FROM onboard_induction_assessment_attempts 
     WHERE user_id = {$userId} AND course_id = {$courseId} AND result = 'Passed'
     LIMIT 1
 ");
 if ($passChk && $passChk->num_rows > 0) {
+    http_response_code(403);
     echo json_encode([
-        'success' => true,
-        'message' => 'Assessment already passed. Further attempts are not permitted.',
+        'success' => false,
+        'message' => 'Assessment already passed and permanently marked complete. Assessment is locked.',
         'passed' => true,
-        'locked' => false,
+        'locked' => true,
         'can_retry' => false
     ]);
     exit;
 }
 
-// Check if user is locked out after 2 failed attempts
-$lockChk = $conn->query("
-    SELECT is_locked FROM onboard_induction_assessment_attempts 
-    WHERE user_id = {$userId} AND course_id = {$courseId} 
+// Check if user is locked out after 2 failed attempts in their current phase
+$phaseStmt = $conn->prepare("
+    SELECT MAX(phase) AS max_phase 
+    FROM onboard_induction_assessment_attempts 
+    WHERE user_id = ? AND course_id = ?
+");
+$maxPhaseRecorded = 1;
+if ($phaseStmt) {
+    $phaseStmt->bind_param('ii', $userId, $courseId);
+    $phaseStmt->execute();
+    $pRow = $phaseStmt->get_result()->fetch_assoc();
+    if (!empty($pRow['max_phase'])) {
+        $maxPhaseRecorded = (int)$pRow['max_phase'];
+    }
+    $phaseStmt->close();
+}
+
+// Count attempts and lock status in the current phase
+$currPhaseAttStmt = $conn->prepare("
+    SELECT COUNT(*) AS cnt, 
+           MAX(CASE WHEN is_locked = 1 THEN 1 ELSE 0 END) AS was_phase_locked
+    FROM onboard_induction_assessment_attempts 
+    WHERE user_id = ? AND course_id = ? AND phase = ?
+");
+$currPhaseAttCount = 0;
+$wasPhaseLocked = false;
+if ($currPhaseAttStmt) {
+    $currPhaseAttStmt->bind_param('iii', $userId, $courseId, $maxPhaseRecorded);
+    $currPhaseAttStmt->execute();
+    $cpRow = $currPhaseAttStmt->get_result()->fetch_assoc();
+    $currPhaseAttCount = (int)($cpRow['cnt'] ?? 0);
+    $wasPhaseLocked = ((int)($cpRow['was_phase_locked'] ?? 0) === 1);
+    $currPhaseAttStmt->close();
+}
+
+// Check if an authorized admin unlock override is active
+$ovrChk = $conn->query("
+    SELECT id FROM onboard_course_unlock_overrides 
+    WHERE user_id = {$userId} AND (moodle_course_id = {$courseId} OR module_id = {$modId}) AND is_unlocked = 1 
     ORDER BY id DESC LIMIT 1
 ");
-$isUserLocked = ($lockChk && $lRow = $lockChk->fetch_assoc()) ? ((int)$lRow['is_locked'] === 1) : false;
+$hasActiveOverride = ($ovrChk && $ovrChk->num_rows > 0);
 
-// Count previous attempts
-$attCntStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM onboard_induction_assessment_attempts WHERE user_id = ? AND course_id = ?");
-$attCntStmt->bind_param('ii', $userId, $courseId);
-$attCntStmt->execute();
-$prevAttemptsCount = (int)($attCntStmt->get_result()->fetch_assoc()['cnt'] ?? 0);
-$attCntStmt->close();
-
-if ($isUserLocked || $prevAttemptsCount >= 2) {
-    // Check if an authorized admin unlock override is active
-    $ovrChk = $conn->query("
-        SELECT id FROM onboard_course_unlock_overrides 
-        WHERE user_id = {$userId} AND (moodle_course_id = {$courseId} OR module_id = {$modId}) AND is_unlocked = 1 
-        ORDER BY id DESC LIMIT 1
-    ");
-    $hasOverride = ($ovrChk && $ovrChk->num_rows > 0);
-    if (!$hasOverride) {
+if ($currPhaseAttCount >= 2 || $wasPhaseLocked) {
+    if (!$hasActiveOverride) {
         http_response_code(403);
         echo json_encode([
             'success' => false,
-            'message' => 'Assessment locked: Maximum allowable attempts (2) reached. Please contact your department head or administrator for unlock authorization.',
+            'message' => 'Assessment locked: Maximum allowable attempts (2) reached for Phase ' . $maxPhaseRecorded . '. Please contact your department head or administrator for unlock authorization.',
             'locked' => true,
             'can_retry' => false,
-            'attempt' => $prevAttemptsCount
+            'phase' => $maxPhaseRecorded,
+            'attempt' => $currPhaseAttCount
         ]);
         exit;
+    } else {
+        // Candidate was locked and Admin has authorized unlock -> Advance to next Phase (Phase 2)!
+        $currentPhase = $maxPhaseRecorded + 1;
+        $effectiveAttempt = $attempt; // Reset to attempt 1 for fresh retake cycle
     }
+} else {
+    $currentPhase = $maxPhaseRecorded;
+    $effectiveAttempt = max($attempt, $currPhaseAttCount + 1);
 }
 
 // 6. Idempotency Guard (Avoid double trigger on slide refresh within 15 seconds)
 $chkDup = $conn->prepare("
     SELECT id, result, is_locked FROM onboard_induction_assessment_attempts
-    WHERE user_id = ? AND attempt = ? AND Quiz_score = ? AND attempted_at >= DATE_SUB(NOW(), INTERVAL 15 SECOND)
+    WHERE user_id = ? AND phase = ? AND attempt = ? AND Quiz_score = ? AND attempted_at >= DATE_SUB(NOW(), INTERVAL 15 SECOND)
     ORDER BY id DESC LIMIT 1
 ");
 if ($chkDup) {
-    $chkDup->bind_param('iid', $userId, $attempt, $quizScore);
+    $chkDup->bind_param('iiid', $userId, $currentPhase, $effectiveAttempt, $quizScore);
     $chkDup->execute();
     $dupRow = $chkDup->get_result()->fetch_assoc();
     $chkDup->close();
@@ -289,7 +328,8 @@ if ($chkDup) {
             'message' => 'Duplicate attempt detected, returning recorded state.',
             'passed' => ($dupRow['result'] === 'Passed'),
             'score' => $quizScore,
-            'attempt' => $attempt,
+            'phase' => $currentPhase,
+            'attempt' => $effectiveAttempt,
             'locked' => (bool)$dupRow['is_locked'],
             'can_retry' => ($dupRow['result'] !== 'Passed' && !$dupRow['is_locked'])
         ]);
@@ -300,15 +340,6 @@ if ($chkDup) {
 // 7. Evaluate Score: >= 80 is Passed, < 80 is Failed
 $isPassed = ($quizScore >= $passingScore);
 $resultText = $isPassed ? 'Passed' : 'Failed';
-
-// Count previous attempts from the database for accuracy
-$attCntStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM onboard_induction_assessment_attempts WHERE user_id = ? AND course_id = ?");
-$attCntStmt->bind_param('ii', $userId, $courseId);
-$attCntStmt->execute();
-$prevAttemptsCount = (int)($attCntStmt->get_result()->fetch_assoc()['cnt'] ?? 0);
-$attCntStmt->close();
-
-$effectiveAttempt = max($attempt, $prevAttemptsCount + 1);
 
 // 8. Determine Locking and Email Trigger
 $isLocked = 0;
@@ -432,10 +463,10 @@ if ($isPassed) {
             $toRecipients[] = 'priyaranjan.samantaray@hexalearn.com';
         }
 
-        // 2. CC Recipients (Updated for testing / management)
+        // 2. CC Recipients
         $ccRecipients = [
-            'ashis.rout@hexalearn.co.in',
-            'ashiskrout1@gmail.com'
+            'Purusottam.jayasingh@hexalearn.com',
+            'priyaranjan.samantaray@hexalearn.com'
         ];
 
         // Fetch Attempt 1 score for the email body
@@ -450,10 +481,12 @@ if ($isPassed) {
         // Check if Admin defined a custom template in onboard_email_templates
         $subjectTpl = "Assessment Locked - 2 Failed Attempts: {{employee_name}} ({{employee_code}})";
         $bodyTpl = "<p>Dear Department Head / Management,</p>\n\n" .
-            "<p>This is an automated notification that the following employee has completed both allowable attempts (Attempt 1 and Attempt 2) for the Induction Assessment and did not meet the required passing score of {{passing_score}} (80%).</p>\n\n" .
+            "<p>This is an automated notification that {{employee_name}} has completed both allowable attempts (Attempt 1 and Attempt 2) for the Induction Assessment and did not meet the required passing score of {{passing_score}}.</p>\n\n" .
             "<p>Employee Details:</p>\n\n" .
             "<p>Employee Name: {{employee_name}}<br>\n" .
             "Employee Code: {{employee_code}}<br>\n" .
+            "Office Email: {{office_email}}<br>\n" .
+            "Department: {{department}}<br>\n" .
             "Attempt 1 Score: {{attempt_1_score}}<br>\n" .
             "Attempt 2 Score: {{attempt_2_score}}<br>\n" .
             "Current Status: {{status}}</p>\n\n" .
@@ -472,6 +505,13 @@ if ($isPassed) {
                 }
             }
         }
+
+        // Clean any duplicate percentage e.g. "80% (80%)" from database template
+        $bodyTpl = str_replace(['80% (80%)', '{{passing_score}} (80%)'], '{{passing_score}}', $bodyTpl);
+        // Remove portal login/management link if present in old templates
+        $bodyTpl = preg_replace('/<p>\s*You can review their attempt history and manage access.*?<\/p>/is', '', $bodyTpl);
+        // Replace generic "the following employee" with employee name if old template in DB
+        $bodyTpl = str_replace('the following employee has completed', '{{employee_name}} has completed', $bodyTpl);
 
         // Replace template variables
         $placeholders = [
@@ -507,8 +547,19 @@ if ($isPassed) {
             // Combine any remaining TO recipients into CC
             $finalCc = array_unique(array_merge($ccRecipients, $toRecipients));
 
+            // Resolve recipient display name for Department Head / Manager (so Outlook shows Manager name, NOT Employee name)
+            $managerNames = [
+                'soumya.sahoo@hexalearn.com' => 'Soumya Sahoo',
+                'arup.panda@hexalearn.com' => 'Arup Panda',
+                'anil.sethi@hexalearn.com' => 'Anil Sethi',
+                'purusottam.jayasingh@hexalearn.com' => 'Purusottam Jayasingh',
+                'pravat.rout@hexalearn.com' => 'Pravat Rout',
+                'priyaranjan.samantaray@hexalearn.com' => 'Priyaranjan Samantaray'
+            ];
+            $primaryToName = $managerNames[strtolower(trim($primaryTo))] ?? 'Department Head / Management';
+
             $mailer = new SmtpMailer();
-            $sendRes = $mailer->send($primaryTo, $empName, $subject, $htmlBody, $finalCc);
+            $sendRes = $mailer->send($primaryTo, $primaryToName, $subject, $htmlBody, $finalCc);
             if (!empty($sendRes['success'])) {
                 $emailSent = 1;
                 $emailToLogged = $primaryTo;
@@ -540,12 +591,12 @@ if ($isPassed) {
 // 9. Record Attempt into dedicated audit table
 $insStmt = $conn->prepare("
     INSERT INTO onboard_induction_assessment_attempts
-        (user_id, emp_code, emp_name, ofc_mail, department_id, department_name, course_id, module_id, student_id, attempt, Quiz_score, passing_score, result, is_locked, email_sent, email_to, email_cc)
+        (user_id, emp_code, emp_name, ofc_mail, department_id, department_name, course_id, module_id, student_id, phase, attempt, Quiz_score, passing_score, result, is_locked, email_sent, email_to, email_cc)
     VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 $insStmt->bind_param(
-    'isssisissidisisss',
+    'isssisissiidisisss',
     $userId,
     $empCode,
     $empName,
@@ -555,6 +606,7 @@ $insStmt->bind_param(
     $courseId,
     $modId,
     $rawStudentId,
+    $currentPhase,
     $effectiveAttempt,
     $quizScore,
     $passingScore,
@@ -578,13 +630,13 @@ if ($userCacheFiles) {
                 foreach ($data['courses'] as &$c) {
                     if ((int)($c['id'] ?? 0) === 3) {
                         $c['status'] = $isPassed ? 'completed' : ($isLockedByAttempt ? 'locked' : 'available');
-                        $c['is_locked'] = $isLockedByAttempt;
+                        $c['is_locked'] = ($isPassed || $isLockedByAttempt);
                         if (!empty($c['modules'])) {
                             foreach ($c['modules'] as &$m) {
                                 $m['attempts'] = $currentAttempt;
                                 $m['score'] = $quizScore;
                                 $m['status'] = $isPassed ? 'completed' : ($isLockedByAttempt ? 'locked' : 'failed');
-                                $m['is_locked'] = $isLockedByAttempt;
+                                $m['is_locked'] = ($isPassed || $isLockedByAttempt);
                                 if (!isset($m['attempts_history']) || !is_array($m['attempts_history'])) {
                                     $m['attempts_history'] = [];
                                 }
@@ -614,6 +666,7 @@ echo json_encode([
     'passed' => $isPassed,
     'score' => $quizScore,
     'passing_score' => $passingScore,
+    'phase' => $currentPhase,
     'attempt' => $effectiveAttempt,
     'result' => $resultText,
     'locked' => (bool)$isLocked,

@@ -34,6 +34,21 @@ if (!is_dir($cacheDir)) {
     @mkdir($cacheDir, 0777, true);
 }
 
+// Normalize Module ID (1-10) to Moodle Course ID if needed
+$moduleIdToCourseId = [
+    1  => 2,   // Employee Onboarding
+    2  => 4,   // Work Rules & Work Life
+    3  => 5,   // Leave & Holidays
+    4  => 8,   // Code of Conduct & Workplace Behavior
+    5  => 6,   // IT, Confidentiality & Security
+    6  => 9,   // Prevention of Sexual Harassment
+    7  => 10,  // Compensation & Benefits
+    8  => 11,  // Performance & Career Growth
+    9  => 12,  // HR Processes & Employee Support
+    10 => 13,  // Safety, Security & Workplace Essentials
+    11 => 3,   // Employee Assessment
+];
+
 // Check version tracker file
 $versionFile = $cacheDir . DIRECTORY_SEPARATOR . 'course_' . $courseId . '.v';
 $savedVersion = file_exists($versionFile) ? (int)trim(@file_get_contents($versionFile)) : 0;
@@ -47,6 +62,19 @@ foreach ($candidateExts as $ext) {
     if (file_exists($filePath) && filesize($filePath) > 500) {
         $foundFile = $filePath;
         break;
+    }
+}
+
+// If direct course ID not found, check if it was requested by module ID
+if (!$foundFile && isset($moduleIdToCourseId[$courseId])) {
+    $mappedId = $moduleIdToCourseId[$courseId];
+    foreach ($candidateExts as $ext) {
+        $filePath = $cacheDir . DIRECTORY_SEPARATOR . 'course_' . $mappedId . '.' . $ext;
+        if (file_exists($filePath) && filesize($filePath) > 500) {
+            $foundFile = $filePath;
+            $courseId = $mappedId;
+            break;
+        }
     }
 }
 
@@ -179,7 +207,10 @@ function serveExistingImageFile($filePath) {
     }
 
     header('Content-Type: ' . $mime);
-    header('Cache-Control: public, max-age=300, must-revalidate');
+    // Aggressive, persistent 30-day client browser caching (zero reload on subsequent page visits)
+    header('Cache-Control: public, max-age=2592000, immutable');
+    header('Expires: ' . gmdate('D, d M Y H:i:s', time() + 2592000) . ' GMT');
+    header('Pragma: cache');
     header('ETag: ' . $etag);
     if ($fileMtime) {
         header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $fileMtime) . ' GMT');

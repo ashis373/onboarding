@@ -80,6 +80,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
 
   const isLocalCorHis = typeof window !== 'undefined' && window.location.pathname.startsWith('/internal/corhis');
   const corhisBase = isLocalCorHis ? '/internal/corhis' : '';
+  const routerBase = (typeof window !== 'undefined' && window.location.pathname.startsWith('/internal/corhis/onboard') ? '/internal/corhis/onboard' : '/onboard');
 
   // Course player modal state
   const [activeCourseId, setActiveCourseId] = useState<number | null>(null);
@@ -360,8 +361,8 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
     const newattempt = itemOptions?.newattempt || (url && (url.includes('newattempt=on') || url.includes('newattempt=1')) ? 'on' : undefined);
     const scoid = itemOptions?.scoid || (url && url.match(/[?&]scoid=(\d+)/)?.[1]);
     const currentorg = itemOptions?.organization || itemOptions?.currentorg || (url && url.match(/[?&]currentorg=([^&]+)/)?.[1]);
-    const courseid = itemOptions?.course_id || (url && url.match(/[?&]courseid=(\d+)/)?.[1]);
-    const moduleId = itemOptions?.module_id || (url && url.match(/[?&]module_id=(\d+)/)?.[1]);
+    const courseid = itemOptions?.course_id || itemOptions?.moodle_course_id || itemOptions?.moodle_id || (url && url.match(/[?&]courseid=(\d+)/)?.[1]);
+    const moduleId = itemOptions?.module_id || itemOptions?.id || (url && url.match(/[?&]module_id=(\d+)/)?.[1]);
 
     const playParams = new URLSearchParams();
     if (cmid) playParams.set('cmid', String(cmid));
@@ -1079,11 +1080,12 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
     if (item?.course_image && !item.course_image.includes('placeholder')) {
       return item.course_image;
     }
-    const cId = Number(item?.course_id || item?.moodle_course_id || item?.id);
-    if (cId > 0) {
-      return `${API_BASE}/moodle/course_image.php?course_id=${cId}`;
-    }
-    return `${API_BASE}/moodle/course_image.php?course_id=2`;
+    const moduleToCourse: Record<number, number> = {
+      1: 2, 2: 4, 3: 5, 4: 8, 5: 6, 6: 9, 7: 10, 8: 11, 9: 12, 10: 13, 11: 3
+    };
+    const rawId = Number(item?.course_id || item?.moodle_course_id || item?.id || 0);
+    const resolvedId = moduleToCourse[rawId] || rawId || 2;
+    return `${API_BASE}/moodle/course_image.php?course_id=${resolvedId}`;
   };
 
   // Recent Activities for Bottom Section: Completely dynamic, includes all courses (Course 1, 2, 3, 4, etc.)
@@ -1891,12 +1893,16 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                       {isPassed ? (
                         <div className="bg-emerald-50/90 border border-emerald-200/90 rounded-xl p-3 text-xs font-bold text-emerald-800 flex items-center gap-2.5 shadow-2xs">
                           <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                          <span>Passed! You achieved {Math.round(lastScore ?? 0)}%.</span>
+                          <span>🎉 Congratulations! You have completed the assessment ({Math.round(lastScore ?? 0)}%).</span>
                         </div>
                       ) : isFailed ? (
                         <div className="bg-rose-50/90 border border-rose-200/80 rounded-xl p-3 text-xs font-semibold text-rose-800 flex items-center gap-2 shadow-2xs">
                           <AlertTriangle className="h-4 w-4 text-rose-500 shrink-0" />
-                          <span>Scored {Math.round(lastScore ?? 0)}%. Need {Math.round(neededMore ?? 0)}% more to pass.</span>
+                          <span>
+                            {assessmentModule?.is_locked || (displayedAttempts.length >= 2)
+                              ? "Assessment locked. Notification email sent to your manager."
+                              : `Scored ${Math.round(lastScore ?? 0)}%. Need ${Math.round(neededMore ?? 0)}% more to pass.`}
+                          </span>
                         </div>
                       ) : (
                         <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-xs font-medium text-slate-600 shadow-2xs">
@@ -2466,105 +2472,190 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                 ASSESSMENT ATTEMPT HISTORY (DEDICATED SEPARATE TABLE - ATTEMPT HISTORY TAB ONLY)
                 Columns: Attempt | Score | Result | Duration | Date & Time | Action
                ========================================================================= */}
-              {activeTab === 'attempt_history' && (
-                <div className="bg-white border border-slate-200/80 rounded-2xl p-5 sm:p-6 shadow-2xs space-y-4">
-                  {/* Attempt History Table */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                          <th className="py-2.5 px-3">Attempt</th>
-                          <th className="py-2.5 px-3">Score</th>
-                          <th className="py-2.5 px-3">Result</th>
-                          <th className="py-2.5 px-3">Duration</th>
-                          <th className="py-2.5 px-3">Date & Time</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {isAssessmentHistoryLoading && displayedAttempts.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center text-slate-400">
-                              <div className="flex items-center justify-center gap-2">
-                                <div className="h-4 w-4 border-2 border-[#00A389] border-t-transparent rounded-full animate-spin" />
-                                <span className="text-xs font-semibold text-slate-600">Loading assessment history...</span>
-                              </div>
-                            </td>
-                          </tr>
-                        ) : displayedAttempts.length > 0 ? (
-                          displayedAttempts.map((row: any, idx: number) => {
-                            const isPassed = row.is_passed || row.result === 'Passed';
-                            const isFailed = row.is_failed || row.result === 'Failed';
-                            return (
-                              <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
-                                <td className="py-3.5 px-3">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-bold text-slate-800 text-xs">
-                                      Attempt {row.attempt}
-                                    </span>
-                                    {row.attempt === 1 && (
-                                      <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
-                                        Initial
-                                      </span>
-                                    )}
-                                    {isPassed && (
-                                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-medium">
-                                        Qualified
-                                      </span>
-                                    )}
+              {activeTab === 'attempt_history' && (() => {
+                const isOverallPassed = Boolean(assessmentHistoryData?.is_passed || displayedAttempts.some((a: any) => a.is_passed || a.result === 'Passed'));
+                const isOverallLocked = Boolean(!isOverallPassed && (assessmentHistoryData?.is_locked || displayedAttempts.some((a: any) => a.is_locked || (a.attempt >= 2 && (a.is_failed || a.result === 'Failed')))));
+                const latestPassedScore = displayedAttempts.find((a: any) => a.is_passed || a.result === 'Passed')?.score ?? assessmentHistoryData?.latest_score;
+
+                return (
+                  <div className="space-y-4">
+                    {/* 1. Celebratory Success Banner when Passed */}
+                    {isOverallPassed && (
+                      <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/5 border border-emerald-300 rounded-2xl p-5 shadow-2xs flex items-start sm:items-center gap-4">
+                        <div className="h-11 w-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                          <Trophy className="h-6 w-6" />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-sm sm:text-base font-black text-emerald-950 tracking-tight">
+                              🎉 Congratulations! You have successfully completed the Assessment!
+                            </h3>
+                            {latestPassedScore !== null && latestPassedScore !== undefined && (
+                              <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full">
+                                Score: {latestPassedScore}%
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-emerald-800/90 font-medium">
+                            You have passed the final induction assessment and successfully met all onboarding requirements. Your completion is permanently certified.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 2. Lockout Warning Banner with Manager Alert Notification when Locked */}
+                    {isOverallLocked && (
+                      <div className="bg-gradient-to-r from-rose-500/10 via-red-500/10 to-amber-500/5 border border-rose-300 rounded-2xl p-5 shadow-2xs flex items-start sm:items-center gap-4">
+                        <div className="h-11 w-11 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                          <Lock className="h-6 w-6" />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-sm sm:text-base font-black text-rose-950 tracking-tight">
+                              Assessment Locked — Maximum Attempts Reached
+                            </h3>
+                            <span className="text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                              <Mail className="h-3 w-3" /> Email sent to Manager
+                            </span>
+                          </div>
+                          <p className="text-xs text-rose-800/90 font-medium leading-relaxed">
+                            You have reached the maximum allowable attempts. An automated notification email has been sent to your Department Manager. Please contact your manager for review and unlock authorization.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. Attempt History Table Card */}
+                    <div className="bg-white border border-slate-200/80 rounded-2xl p-5 sm:p-6 shadow-2xs space-y-4">
+                      {/* Attempt History Table */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                              <th className="py-2.5 px-3">Attempt</th>
+                              <th className="py-2.5 px-3">Score</th>
+                              <th className="py-2.5 px-3">Result</th>
+                              <th className="py-2.5 px-3">Date & Time</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {isAssessmentHistoryLoading && displayedAttempts.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="py-8 text-center text-slate-400">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <div className="h-4 w-4 border-2 border-[#00A389] border-t-transparent rounded-full animate-spin" />
+                                    <span className="text-xs font-semibold text-slate-600">Loading assessment history...</span>
                                   </div>
                                 </td>
-                                <td className="py-3.5 px-3">
-                                  <span className={`text-sm font-black ${isPassed ? 'text-emerald-600' : 'text-red-600'}`}>
-                                    {row.score !== null && row.score !== undefined ? `${row.score}%` : '0%'}
-                                  </span>
-                                </td>
-                                <td className="py-3.5 px-3">
-                                  {isPassed ? (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-                                      <CheckCircle className="h-3 w-3" /> Passed
-                                    </span>
-                                  ) : isFailed ? (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 px-2.5 py-0.5 rounded-full">
-                                      <AlertTriangle className="h-3 w-3" /> Failed
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full">
-                                      {row.result}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-3.5 px-3 font-semibold text-slate-600">
-                                  {row.formattedDuration || '—'}
-                                </td>
-                                <td className="py-3.5 px-3 text-slate-500 font-medium text-[11px]">
-                                  {row.date || '—'}
+                              </tr>
+                            ) : displayedAttempts.length > 0 ? (
+                              displayedAttempts.map((row: any, idx: number) => {
+                                const isPassed = row.is_passed || row.result === 'Passed';
+                                const isFailed = row.is_failed || row.result === 'Failed';
+                                
+                                // Indian Time formatting for attempted_at
+                                let displayDateTime = row.date || '—';
+                                if (row.attempted_at) {
+                                  try {
+                                    const rawIso = row.attempted_at.endsWith('Z') || row.attempted_at.includes('+')
+                                      ? row.attempted_at
+                                      : row.attempted_at.replace(' ', 'T') + 'Z';
+                                    const d = new Date(rawIso);
+                                    if (!isNaN(d.getTime())) {
+                                      displayDateTime = d.toLocaleString('en-US', {
+                                        timeZone: 'Asia/Kolkata',
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric',
+                                        hour: 'numeric',
+                                        minute: '2-digit',
+                                        hour12: true
+                                      });
+                                    }
+                                  } catch (e) {
+                                    displayDateTime = row.date || row.attempted_at;
+                                  }
+                                }
+
+                                return (
+                                  <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
+                                    <td className="py-3.5 px-3">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        {row.phase && row.phase > 1 ? (
+                                          <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-200">
+                                            Phase {row.phase}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
+                                            Phase 1
+                                          </span>
+                                        )}
+                                        <span className="font-bold text-slate-800 text-xs">
+                                          Attempt {row.attempt}
+                                        </span>
+                                        {row.attempt === 1 && (!row.phase || row.phase === 1) && (
+                                          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
+                                            Initial
+                                          </span>
+                                        )}
+                                        {isPassed && (
+                                          <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-medium">
+                                            Qualified
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="py-3.5 px-3">
+                                      <span className={`text-sm font-black ${isPassed ? 'text-emerald-600' : 'text-red-600'}`}>
+                                        {row.score !== null && row.score !== undefined ? `${row.score}%` : '0%'}
+                                      </span>
+                                    </td>
+                                    <td className="py-3.5 px-3">
+                                      {isPassed ? (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                                          <CheckCircle className="h-3 w-3" /> Passed
+                                        </span>
+                                      ) : isFailed ? (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 px-2.5 py-0.5 rounded-full">
+                                          <AlertTriangle className="h-3 w-3" /> Failed
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full">
+                                          {row.result}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-3.5 px-3 text-slate-600 font-semibold text-[11px]">
+                                      {displayDateTime}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr>
+                                <td colSpan={4} className="py-8 text-center text-slate-400">
+                                  <p className="font-semibold text-slate-600">No attempts recorded yet.</p>
+                                  <p className="text-[11px] text-slate-400 mt-1">Take the assessment to record your attempt and score in real time.</p>
                                 </td>
                               </tr>
-                            );
-                          })
-                        ) : (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center text-slate-400">
-                              <p className="font-semibold text-slate-600">No attempts recorded yet.</p>
-                              <p className="text-[11px] text-slate-400 mt-1">Take the assessment to record your attempt and score in real time.</p>
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
 
-                  {/* Helper Footer Note */}
-                  <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3 flex items-center text-xs">
-                    <div className="flex items-center gap-2 text-slate-600">
-                      <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                      <span>
-                        Passing threshold: <strong>{assessmentModule?.passing_score ?? 80}%</strong>. Retakes record new attempts automatically.
-                      </span>
+                      {/* Helper Footer Note */}
+                      <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3 flex items-center text-xs">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                          <span>
+                            Passing threshold: <strong>{assessmentModule?.passing_score ?? 80}%</strong>. Retakes record new attempts automatically.
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
             </div>
 

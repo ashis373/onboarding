@@ -81,11 +81,18 @@ if (!$employee) {
 }
 
 // 2. Query attempts from onboard_induction_assessment_attempts
+$hasPhaseCol = false;
+$chkPh = $conn->query("SHOW COLUMNS FROM `onboard_induction_assessment_attempts` LIKE 'phase'");
+if ($chkPh && $chkPh->num_rows > 0) {
+    $hasPhaseCol = true;
+}
+
+$phaseSelect = $hasPhaseCol ? "phase," : "1 AS phase,";
 $attStmt = $conn->prepare("
-    SELECT id, attempt, Quiz_score, passing_score, result, is_locked, email_sent, attempted_at 
+    SELECT id, {$phaseSelect} attempt, Quiz_score, passing_score, result, is_locked, email_sent, attempted_at 
     FROM onboard_induction_assessment_attempts 
     WHERE user_id = ? 
-    ORDER BY attempt ASC, id ASC
+    ORDER BY phase ASC, attempt ASC, id ASC
 ");
 $attStmt->bind_param('i', $userId);
 $attStmt->execute();
@@ -108,11 +115,20 @@ while ($row = $attResult->fetch_assoc()) {
     $latestScore = $score;
     $dbIsLocked = (int)$row['is_locked'];
 
-    $attTime = !empty($row['attempted_at']) ? strtotime($row['attempted_at']) : time();
-    $formattedDate = date('M d, Y h:i A', $attTime);
+    $formattedDate = '';
+    if (!empty($row['attempted_at'])) {
+        try {
+            $dt = new DateTime($row['attempted_at'], new DateTimeZone('UTC'));
+            $dt->setTimezone(new DateTimeZone('Asia/Kolkata'));
+            $formattedDate = $dt->format('M d, Y, h:i A');
+        } catch (\Exception $e) {
+            $formattedDate = date('M d, Y, h:i A', strtotime($row['attempted_at']));
+        }
+    }
 
     $attemptsList[] = [
         'id' => (int)$row['id'],
+        'phase' => (int)($row['phase'] ?? 1),
         'attempt' => (int)$row['attempt'],
         'score' => $score,
         'result' => $isPassed ? 'Passed' : 'Failed',
@@ -146,7 +162,7 @@ $isLocked = false;
 $canRetake = false;
 
 if ($isPassedOverall) {
-    $isLocked = false;
+    $isLocked = true; // Permanently locked once passed
     $canRetake = false;
     $status = 'completed';
 } elseif ($totalAttempts >= $maxAttempts || $dbIsLocked === 1) {

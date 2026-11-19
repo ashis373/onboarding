@@ -282,11 +282,16 @@ if ($action === 'get_template') {
         "<p>Thank you,</p>\n\n" .
         "<p>HexaLearn Onboarding System</p>";
 
-    $defaultCc = "ashis.rout@hexalearn.co.in, ashiskrout1@gmail.com";
+    $defaultCc = "Purusottam.jayasingh@hexalearn.com, priyaranjan.samantaray@hexalearn.com";
 
     $bodyToReturn = $custom['body_html'] ?? $defaultBody;
     if (strpos($bodyToReturn, '<div style=') !== false || strpos($bodyToReturn, 'Dear {{employee_name}}') !== false || strpos($bodyToReturn, 'Office Email: {{office_email}}') !== false || strpos($bodyToReturn, 'https://corhis.hexalearn.com/onboard/admin/assessments') !== false) {
         $bodyToReturn = $defaultBody;
+    }
+
+    $customCcToReturn = $custom['description'] ?? $defaultCc;
+    if (strpos($customCcToReturn, 'ashiskrout1') !== false || strpos($customCcToReturn, 'ashis.rout') !== false) {
+        $customCcToReturn = $defaultCc;
     }
 
     // Ensure onboard_department_heads table exists
@@ -341,7 +346,7 @@ if ($action === 'get_template') {
         'template' => [
             'subject' => $custom['subject'] ?? $defaultSubject,
             'body_html' => $bodyToReturn,
-            'cc_recipients' => $custom['description'] ?? $defaultCc,
+            'cc_recipients' => $customCcToReturn,
             'updated_at' => $custom['updated_at'] ?? null,
             'is_custom' => ($custom !== null)
         ],
@@ -385,6 +390,8 @@ if ($statusFilter === 'passed') {
     $where[] = "a.result = 'Failed' AND a.is_locked = 0";
 } elseif ($statusFilter === 'locked') {
     $where[] = "a.is_locked = 1";
+} elseif ($statusFilter === 'emails_sent') {
+    $where[] = "a.email_sent = 1";
 }
 
 $whereClause = implode(' AND ', $where);

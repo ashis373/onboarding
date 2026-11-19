@@ -63,17 +63,13 @@ if ((int)$user['status'] !== 0) {
     exit;
 }
 
-// Check if user is Tester (UID 205 / ashisr) or Admin for assessment canary preview testing
-$isTesterOrAdmin = false;
-$uName = strtolower(trim((string)($user['username'] ?? '')));
-$empCode = strtoupper(trim((string)($user['emp_code'] ?? '')));
+// Check if user is Admin
+$isAdmin = false;
 if (
-    in_array((string)$user_id, ['205', '26', '64'], true) ||
-    $uName === 'ashisr' ||
-    $empCode === 'HL078' ||
+    in_array((string)$user_id, ['26', '64'], true) ||
     ((int)($user['user_role'] ?? 0) === 1)
 ) {
-    $isTesterOrAdmin = true;
+    $isAdmin = true;
 }
 
 // 2. Fetch authoritative curriculum modules from onboard_modules
@@ -148,8 +144,7 @@ if ($modSetRes) {
             'sort_order' => (int)$msRow['sort_order'],
             'is_active' => $isActive
         ];
-        $isAssessMod = ($cIdKey === 3 || (int)($msRow['id'] ?? 0) === 6 || stripos((string)$msRow['title'], 'assess') !== false);
-        if ($isActive === 1 || ($isTesterOrAdmin && $isAssessMod)) {
+        if ($isActive === 1) {
             $activeRequiredCourseIds[] = $cIdKey;
         }
     }
@@ -199,7 +194,7 @@ $userCacheDir = __DIR__ . '/cache';
 $userCacheFile = $userCacheDir . '/user_courses_' . (int)$user_id . '_' . (int)$moodleUserId . '.json';
 $bypassUserCache = !empty($_GET['force_refresh']) || !empty($_GET['refresh_all']) || !empty($_GET['sync_progress']);
 
-$serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $isTesterOrAdmin, $user_id, $onboardApiBase) {
+$serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $activeRequiredCourseIds, $user_id, $onboardApiBase) {
     if (!file_exists($userCacheFile)) {
         return false;
     }
@@ -207,48 +202,18 @@ $serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $
     if ($cachedPayload !== false && $cachedPayload !== '') {
         $decodedCached = json_decode($cachedPayload, true);
         if (is_array($decodedCached) && !empty($decodedCached['success']) && !empty($decodedCached['courses'])) {
-            // Inject Course 3 for Tester/Admin if not present without deleting cache
-            if ($isTesterOrAdmin) {
-                $hasCourse3 = false;
-                foreach ($decodedCached['courses'] as $cc) {
-                    if ((int)($cc['id'] ?? 0) === 3) {
-                        $hasCourse3 = true;
-                        break;
-                    }
-                }
-                if (!$hasCourse3) {
-                    $decodedCached['courses'][] = [
-                        'id' => 3,
-                        'fullname' => 'Employee Assessment',
-                        'displayname' => 'Employee Assessment',
-                        'status' => 'available',
-                        'is_locked' => false,
-                        'admin_unlocked' => true,
-                        'modules' => [[
-                            'id' => 6,
-                            'module_id' => 6,
-                            'cmid' => 4,
-                            'scoid' => 32,
-                            'title' => 'Employee Assessment',
-                            'is_assessment' => true,
-                            'status' => 'available',
-                            'is_locked' => false,
-                            'attempts' => 0,
-                            'attempts_history' => [],
-                            'score' => null,
-                            'duration' => '20 min',
-                            'url' => $onboardApiBase . '/moodle/launch.php?cmid=4&courseid=3&scoid=32',
-                            'launch_url' => $onboardApiBase . '/moodle/launch.php?cmid=4&courseid=3&scoid=32'
-                        ]]
-                    ];
-                    @file_put_contents($userCacheFile, json_encode($decodedCached, JSON_UNESCAPED_SLASHES));
+            // Verify all currently active courses in onboard_modules are present in the cached courses list.
+            // If an Admin unhid a course, the cached list won't have it -> return false to regenerate instantly with 0 delay!
+            $cachedCourseIds = array_map(function($c) { return (int)($c['id'] ?? 0); }, $decodedCached['courses']);
+            foreach ($activeRequiredCourseIds as $reqCid) {
+                if (!in_array($reqCid, $cachedCourseIds, true)) {
+                    return false;
                 }
             }
 
-            // In-Memory Filter: Hide inactive courses dynamically without ever deleting the cache!
-            $decodedCached['courses'] = array_values(array_filter($decodedCached['courses'], function($cc) use ($modSettings, $isTesterOrAdmin) {
+            // In-Memory Filter: Hide inactive courses dynamically without deleting the cache!
+            $decodedCached['courses'] = array_values(array_filter($decodedCached['courses'], function($cc) use ($modSettings) {
                 $cid = (int)($cc['id'] ?? 0);
-                if ($isTesterOrAdmin && $cid === 3) return true;
                 if (isset($modSettings[$cid]) && (int)$modSettings[$cid]['is_active'] === 0) {
                     return false;
                 }
@@ -309,7 +274,7 @@ $serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $
                                                 $mItem['status'] = 'completed';
                                                 $mItem['is_completed'] = true;
                                                 $mItem['progress_percent'] = 100;
-                                            } elseif ($liveIsLocked && !$isTesterOrAdmin) {
+                                            } elseif ($liveIsLocked) {
                                                 $mItem['status'] = 'locked';
                                                 $mItem['is_locked'] = true;
                                             }
@@ -325,7 +290,7 @@ $serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $
                                                 $scItem['status'] = 'completed';
                                                 $scItem['is_completed'] = true;
                                                 $scItem['progress_percent'] = 100;
-                                            } elseif ($liveIsLocked && !$isTesterOrAdmin) {
+                                            } elseif ($liveIsLocked) {
                                                 $scItem['status'] = 'locked';
                                                 $scItem['is_locked'] = true;
                                             }
@@ -446,11 +411,9 @@ if (is_array($coursesResponse) && empty($coursesResponse['error'])) {
     }
 }
 
-// Guarantee that EVERY active module in onboard_modules is present (plus Assessment for Tester UID 205)
+// Guarantee that EVERY active module in onboard_modules is present
 foreach ($modSettings as $cId => $mSet) {
-    $isAssessCourse = ($cId === 3 || (int)($mSet['id'] ?? 0) === 6 || stripos((string)$mSet['title'], 'assess') !== false);
-    $shouldInclude = ($mSet['is_active'] === 1) || ($isTesterOrAdmin && $isAssessCourse);
-    if ($shouldInclude && !isset($indexedCourses[$cId])) {
+    if ((int)($mSet['is_active'] ?? 0) === 1 && !isset($indexedCourses[$cId])) {
         $indexedCourses[$cId] = [
             'id' => $cId,
             'fullname' => $mSet['title'],
@@ -467,15 +430,11 @@ foreach ($modSettings as $cId => $mSet) {
     }
 }
 
-// Filter out courses hidden by Admin (Assessment remains visible ONLY for Tester UID 205 / Admin)
-$coursesResponse = array_values(array_filter($indexedCourses, function($c) use ($modSettings, $isTesterOrAdmin) {
+// Filter out courses hidden by Admin
+$coursesResponse = array_values(array_filter($indexedCourses, function($c) use ($modSettings) {
     $cId = (int)($c['id'] ?? 0);
     if (isset($modSettings[$cId]) && (int)$modSettings[$cId]['is_active'] === 0) {
-        $isAssessCourse = ($cId === 3 || (int)($modSettings[$cId]['id'] ?? 0) === 6 || stripos((string)$modSettings[$cId]['title'], 'assess') !== false);
-        if ($isTesterOrAdmin && $isAssessCourse) {
-            return true; // Assessment is visible ONLY to Tester (UID 205) / Admin for live preview!
-        }
-        return false; // Hidden from all regular employees!
+        return false; // Hidden from employee
     }
     return true;
 }));
@@ -2182,37 +2141,8 @@ if (!empty($activeOverrides)) {
     unset($cRef);
 }
 
-// 4.6 Tester/Admin Canary Preview: Always unlock Assessment Course 3 so Tester (UID 205) can test anytime
-if ($isTesterOrAdmin) {
-    foreach ($cleanCourses as &$cRef) {
-        $cIdNum = (int)($cRef['id'] ?? 0);
-        if ($cIdNum === 3 || stripos((string)($cRef['fullname'] ?? ''), 'assess') !== false) {
-            $cRef['is_locked'] = false;
-            $cRef['admin_unlocked'] = true;
-            $cRef['locked_reason'] = null;
-            if (!empty($cRef['modules']) && is_array($cRef['modules'])) {
-                foreach ($cRef['modules'] as &$mRef) {
-                    $mRef['is_locked'] = false;
-                    $mRef['admin_unlocked'] = true;
-                    $mRef['locked_reason'] = null;
-                }
-                unset($mRef);
-            }
-            if (!empty($cRef['scorms']) && is_array($cRef['scorms'])) {
-                foreach ($cRef['scorms'] as &$scRef) {
-                    $scRef['is_locked'] = false;
-                    $scRef['admin_unlocked'] = true;
-                    $scRef['locked_reason'] = null;
-                }
-                unset($scRef);
-            }
-        }
-    }
-    unset($cRef);
-}
-
 // 5. 7-Day Access Expiry: Disabled per requirements (continuous sequential access)
-$isAdmin = in_array((string)$user_id, ['26', '64', '205']) || (string)($user['user_role'] ?? '') === '1';
+$isAdmin = in_array((string)$user_id, ['26', '64'], true) || (string)($user['user_role'] ?? '') === '1';
 $daysElapsed = 0;
 $isExpired = false;
 

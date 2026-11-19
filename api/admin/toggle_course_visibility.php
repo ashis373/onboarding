@@ -107,8 +107,22 @@ foreach ($_SESSION as $k => $v) {
     }
 }
 
-// Note: Cache files are NEVER deleted; courses.php dynamically filters visibility from the database in <2ms
-// to prevent 30s FastCGI timeouts and 500 errors.
+// Invalidate disk cache files so changes reflect instantly for all employees
+$cacheDirs = [
+    __DIR__ . '/../moodle/cache',
+    __DIR__ . '/moodle/cache',
+    dirname(__DIR__) . '/moodle/cache'
+];
+foreach ($cacheDirs as $cd) {
+    if (is_dir($cd)) {
+        $files = glob($cd . '/user_courses_*.json');
+        if ($files) {
+            foreach ($files as $f) {
+                @unlink($f);
+            }
+        }
+    }
+}
 
 $statusText = ($isActive === 1) ? 'visible to employees' : 'hidden from employees';
 

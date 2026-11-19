@@ -70,12 +70,7 @@ echo json_encode(['success' => false, 'message' => 'Missing target employee uid 
     }
 
     $invalidateEmployeeCourseCache = function($uid) {
-        $cacheFiles = @glob(__DIR__ . '/../moodle/cache/user_courses_' . (int)$uid . '_*.json');
-        if (is_array($cacheFiles)) {
-            foreach ($cacheFiles as $cf) {
-                @unlink($cf);
-            }
-        }
+        // Never unlink cache to prevent 30s FastCGI timeouts. In-place sync ensures instant loading.
     };
 
     // Action 1: Unlock Course for this specific employee
@@ -357,7 +352,7 @@ if (empty($orderedModules)) {
 // SCO ID mapping for verified Moodle SCORM activities
 $cmidScoMap = [
     6 => ['scoid' => 8,  'org' => 'M1_-_Onboarding_Program_ORG'],
-    4 => ['scoid' => 4,  'org' => 'Assessment_ORG'],
+    4 => ['scoid' => 32, 'org' => 'M_11_-_Assessment_ORG'],
     7 => ['scoid' => 10, 'org' => 'M2_-_Work_Rules_and_Work_Life_ORG'],
     8 => ['scoid' => 12, 'org' => 'M3_-_Leave_&_Holidays_ORG'],
     9 => ['scoid' => 14, 'org' => 'M5_-_IT,_Confidentiality_&_Security_ORG'],

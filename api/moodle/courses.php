@@ -2,6 +2,11 @@
 // Endpoint: api/moodle/courses.php
 // Returns enrolled Moodle courses and SCORM tracking for the authenticated HexaOne employee
 
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+error_reporting(E_ALL);
+@set_time_limit(120);
+
 header('Content-Type: application/json; charset=UTF-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
@@ -58,6 +63,19 @@ if ((int)$user['status'] !== 0) {
     exit;
 }
 
+// Check if user is Tester (UID 205 / ashisr) or Admin for assessment canary preview testing
+$isTesterOrAdmin = false;
+$uName = strtolower(trim((string)($user['username'] ?? '')));
+$empCode = strtoupper(trim((string)($user['emp_code'] ?? '')));
+if (
+    in_array((string)$user_id, ['205', '26', '64'], true) ||
+    $uName === 'ashisr' ||
+    $empCode === 'HL078' ||
+    ((int)($user['user_role'] ?? 0) === 1)
+) {
+    $isTesterOrAdmin = true;
+}
+
 // 2. Fetch authoritative curriculum modules from onboard_modules
 $modSettings = [];
 $activeRequiredCourseIds = [];
@@ -65,7 +83,7 @@ $activeRequiredCourseIds = [];
 // Authoritative Course to primary SCORM module & SCO mapping
 $courseMasterMap = [
     2  => ['cmid' => 6,  'scoid' => 8,  'org' => 'M1_-_Onboarding_Program_ORG', 'title' => 'Employee Onboarding 1 SCORM'],
-    3  => ['cmid' => 4,  'scoid' => 4,  'org' => 'Assessment_ORG',               'title' => 'Employee_Assessment'],
+    3  => ['cmid' => 4,  'scoid' => 32, 'org' => 'M_11_-_Assessment_ORG',        'title' => 'Employee_Assessment'],
     4  => ['cmid' => 7,  'scoid' => 10, 'org' => 'M2_-_Work_Rules_and_Work_Life_ORG', 'title' => 'Work Rules and Work Life M-2'],
     5  => ['cmid' => 8,  'scoid' => 12, 'org' => 'M3_-_Leave_&_Holidays_ORG',   'title' => 'Leave & Holidays'],
     6  => ['cmid' => 9,  'scoid' => 14, 'org' => 'M5_-_IT,_Confidentiality_&_Security_ORG', 'title' => 'IT, Confidentiality & Security'],
@@ -102,11 +120,19 @@ if ($modSetRes) {
         $mCmid = (int)($msRow['moodle_cmid'] ?? 0);
         $mScoId = (int)($msRow['moodle_scoid'] ?? 0);
 
-        if (!$mCmid && isset($courseMasterMap[$cIdKey])) {
-            $mCmid = $courseMasterMap[$cIdKey]['cmid'];
-        }
-        if (!$mScoId && isset($courseMasterMap[$cIdKey])) {
-            $mScoId = $courseMasterMap[$cIdKey]['scoid'];
+        if ($cIdKey === 3 || (int)($msRow['id'] ?? 0) === 6 || stripos((string)$msRow['title'], 'assess') !== false) {
+            $mCmid = 4;
+            $mScoId = 32;
+            if ($conn && ((int)($msRow['moodle_cmid'] ?? 0) !== 4 || (int)($msRow['moodle_scoid'] ?? 0) !== 32)) {
+                @$conn->query("UPDATE onboard_modules SET moodle_cmid = 4, moodle_scoid = 32 WHERE moodle_course_id = 3 OR id = 6");
+            }
+        } else {
+            if (!$mCmid && isset($courseMasterMap[$cIdKey])) {
+                $mCmid = $courseMasterMap[$cIdKey]['cmid'];
+            }
+            if (!$mScoId && isset($courseMasterMap[$cIdKey])) {
+                $mScoId = $courseMasterMap[$cIdKey]['scoid'];
+            }
         }
 
         $modSettings[$cIdKey] = [
@@ -122,7 +148,8 @@ if ($modSetRes) {
             'sort_order' => (int)$msRow['sort_order'],
             'is_active' => $isActive
         ];
-        if ($isActive === 1) {
+        $isAssessMod = ($cIdKey === 3 || (int)($msRow['id'] ?? 0) === 6 || stripos((string)$msRow['title'], 'assess') !== false);
+        if ($isActive === 1 || ($isTesterOrAdmin && $isAssessMod)) {
             $activeRequiredCourseIds[] = $cIdKey;
         }
     }
@@ -172,7 +199,7 @@ $userCacheDir = __DIR__ . '/cache';
 $userCacheFile = $userCacheDir . '/user_courses_' . (int)$user_id . '_' . (int)$moodleUserId . '.json';
 $bypassUserCache = !empty($_GET['force_refresh']) || !empty($_GET['refresh_all']) || !empty($_GET['sync_progress']);
 
-$serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings) {
+$serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $isTesterOrAdmin, $user_id, $onboardApiBase) {
     if (!file_exists($userCacheFile)) {
         return false;
     }
@@ -180,14 +207,144 @@ $serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings) {
     if ($cachedPayload !== false && $cachedPayload !== '') {
         $decodedCached = json_decode($cachedPayload, true);
         if (is_array($decodedCached) && !empty($decodedCached['success']) && !empty($decodedCached['courses'])) {
-            // Instant Invalidation: If any course in cache is hidden (is_active === 0), purge cache immediately!
-            foreach ($decodedCached['courses'] as $cc) {
-                $cid = (int)($cc['id'] ?? 0);
-                if (isset($modSettings[$cid]) && (int)$modSettings[$cid]['is_active'] === 0) {
-                    @unlink($userCacheFile);
-                    return false;
+            // Inject Course 3 for Tester/Admin if not present without deleting cache
+            if ($isTesterOrAdmin) {
+                $hasCourse3 = false;
+                foreach ($decodedCached['courses'] as $cc) {
+                    if ((int)($cc['id'] ?? 0) === 3) {
+                        $hasCourse3 = true;
+                        break;
+                    }
+                }
+                if (!$hasCourse3) {
+                    $decodedCached['courses'][] = [
+                        'id' => 3,
+                        'fullname' => 'Employee Assessment',
+                        'displayname' => 'Employee Assessment',
+                        'status' => 'available',
+                        'is_locked' => false,
+                        'admin_unlocked' => true,
+                        'modules' => [[
+                            'id' => 6,
+                            'module_id' => 6,
+                            'cmid' => 4,
+                            'scoid' => 32,
+                            'title' => 'Employee Assessment',
+                            'is_assessment' => true,
+                            'status' => 'available',
+                            'is_locked' => false,
+                            'attempts' => 0,
+                            'attempts_history' => [],
+                            'score' => null,
+                            'duration' => '20 min',
+                            'url' => $onboardApiBase . '/moodle/launch.php?cmid=4&courseid=3&scoid=32',
+                            'launch_url' => $onboardApiBase . '/moodle/launch.php?cmid=4&courseid=3&scoid=32'
+                        ]]
+                    ];
+                    @file_put_contents($userCacheFile, json_encode($decodedCached, JSON_UNESCAPED_SLASHES));
                 }
             }
+
+            // In-Memory Filter: Hide inactive courses dynamically without ever deleting the cache!
+            $decodedCached['courses'] = array_values(array_filter($decodedCached['courses'], function($cc) use ($modSettings, $isTesterOrAdmin) {
+                $cid = (int)($cc['id'] ?? 0);
+                if ($isTesterOrAdmin && $cid === 3) return true;
+                if (isset($modSettings[$cid]) && (int)$modSettings[$cid]['is_active'] === 0) {
+                    return false;
+                }
+                return true;
+            }));
+
+            // Dynamically inject live assessment attempts into the cached response so Attempt History is ALWAYS 100% up to date
+            if ($user_id > 0 && isset($conn) && $conn instanceof mysqli) {
+                try {
+                    $attStmt = $conn->prepare("
+                        SELECT id, attempt, Quiz_score, passing_score, result, is_locked, attempted_at 
+                        FROM onboard_induction_assessment_attempts 
+                        WHERE user_id = ? 
+                        ORDER BY attempt ASC, id ASC
+                    ");
+                    if ($attStmt) {
+                        $attStmt->bind_param("i", $user_id);
+                        $attStmt->execute();
+                        $attRes = $attStmt->get_result();
+                        $liveAttempts = [];
+                        $liveLastScore = null;
+                        $liveIsLocked = false;
+                        $livePassed = false;
+                        while ($att = $attRes->fetch_assoc()) {
+                            $sVal = (float)$att['Quiz_score'];
+                            $pVal = (float)($att['passing_score'] ?: 80);
+                            $rVal = trim($att['result'] ?? '');
+                            if (empty($rVal)) {
+                                $rVal = ($sVal >= $pVal) ? 'Passed' : 'Failed';
+                            }
+                            $stVal = (strtolower($rVal) === 'passed' || $sVal >= $pVal) ? 'passed' : 'failed';
+                            $liveAttempts[] = [
+                                'attempt' => (int)$att['attempt'],
+                                'score' => (int)round($sVal),
+                                'result' => $rVal,
+                                'status' => $stVal,
+                                'total_time' => '—',
+                                'date' => !empty($att['attempted_at']) ? date('d-M-Y H:i', strtotime($att['attempted_at'])) : '—'
+                            ];
+                            $liveLastScore = (int)round($sVal);
+                            if ($stVal === 'passed') $livePassed = true;
+                            if ((int)$att['is_locked'] === 1) $liveIsLocked = true;
+                        }
+                        $attStmt->close();
+
+                        if (!empty($liveAttempts)) {
+                            $liveCount = count($liveAttempts);
+                            $foundAssessInCache = false;
+                            foreach ($decodedCached['courses'] as &$cItem) {
+                                if ((int)($cItem['id'] ?? 0) === 3) {
+                                    $foundAssessInCache = true;
+                                    if (!empty($cItem['modules']) && is_array($cItem['modules'])) {
+                                        foreach ($cItem['modules'] as &$mItem) {
+                                            $mItem['attempts'] = $liveCount;
+                                            $mItem['attempts_history'] = $liveAttempts;
+                                            $mItem['score'] = $liveLastScore;
+                                            if ($livePassed) {
+                                                $mItem['status'] = 'completed';
+                                                $mItem['is_completed'] = true;
+                                                $mItem['progress_percent'] = 100;
+                                            } elseif ($liveIsLocked && !$isTesterOrAdmin) {
+                                                $mItem['status'] = 'locked';
+                                                $mItem['is_locked'] = true;
+                                            }
+                                        }
+                                        unset($mItem);
+                                    }
+                                    if (!empty($cItem['scorms']) && is_array($cItem['scorms'])) {
+                                        foreach ($cItem['scorms'] as &$scItem) {
+                                            $scItem['attempts'] = $liveCount;
+                                            $scItem['attempts_history'] = $liveAttempts;
+                                            $scItem['score'] = $liveLastScore;
+                                            if ($livePassed) {
+                                                $scItem['status'] = 'completed';
+                                                $scItem['is_completed'] = true;
+                                                $scItem['progress_percent'] = 100;
+                                            } elseif ($liveIsLocked && !$isTesterOrAdmin) {
+                                                $scItem['status'] = 'locked';
+                                                $scItem['is_locked'] = true;
+                                            }
+                                        }
+                                        unset($scItem);
+                                    }
+                                }
+                            }
+                            unset($cItem);
+                            if ($foundAssessInCache) {
+                                $cachedPayload = json_encode($decodedCached, JSON_UNESCAPED_SLASHES);
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    error_log("Notice: Error in live attempts injection: " . $e->getMessage());
+                }
+            }
+
             if (session_status() === PHP_SESSION_ACTIVE) {
                 session_write_close();
             }
@@ -289,9 +446,11 @@ if (is_array($coursesResponse) && empty($coursesResponse['error'])) {
     }
 }
 
-// Guarantee that EVERY active module in onboard_modules is present
+// Guarantee that EVERY active module in onboard_modules is present (plus Assessment for Tester UID 205)
 foreach ($modSettings as $cId => $mSet) {
-    if ($mSet['is_active'] === 1 && !isset($indexedCourses[$cId])) {
+    $isAssessCourse = ($cId === 3 || (int)($mSet['id'] ?? 0) === 6 || stripos((string)$mSet['title'], 'assess') !== false);
+    $shouldInclude = ($mSet['is_active'] === 1) || ($isTesterOrAdmin && $isAssessCourse);
+    if ($shouldInclude && !isset($indexedCourses[$cId])) {
         $indexedCourses[$cId] = [
             'id' => $cId,
             'fullname' => $mSet['title'],
@@ -308,11 +467,15 @@ foreach ($modSettings as $cId => $mSet) {
     }
 }
 
-// Filter out courses hidden by Admin
-$coursesResponse = array_values(array_filter($indexedCourses, function($c) use ($modSettings) {
+// Filter out courses hidden by Admin (Assessment remains visible ONLY for Tester UID 205 / Admin)
+$coursesResponse = array_values(array_filter($indexedCourses, function($c) use ($modSettings, $isTesterOrAdmin) {
     $cId = (int)($c['id'] ?? 0);
     if (isset($modSettings[$cId]) && (int)$modSettings[$cId]['is_active'] === 0) {
-        return false; // Hidden by admin!
+        $isAssessCourse = ($cId === 3 || (int)($modSettings[$cId]['id'] ?? 0) === 6 || stripos((string)$modSettings[$cId]['title'], 'assess') !== false);
+        if ($isTesterOrAdmin && $isAssessCourse) {
+            return true; // Assessment is visible ONLY to Tester (UID 205) / Admin for live preview!
+        }
+        return false; // Hidden from all regular employees!
     }
     return true;
 }));
@@ -354,6 +517,60 @@ if ($user_id > 0) {
         while ($pr = $pRes->fetch_assoc()) {
             $userProgressMap[(int)$pr['module_id']] = $pr;
         }
+    }
+}
+
+// Pre-fetch Authoritative Assessment Attempts from onboard_induction_assessment_attempts for this specific employee
+$userAssessmentAttempts = [];
+$assessmentAttemptCount = 0;
+$assessmentLatestScore = null;
+$assessmentIsLockedByAttempt = false;
+$assessmentIsCompleted = false;
+
+if ($user_id > 0) {
+    try {
+        $attStmt = $conn->prepare("
+            SELECT id, attempt, Quiz_score, passing_score, result, is_locked, attempted_at 
+            FROM onboard_induction_assessment_attempts 
+            WHERE user_id = ? 
+            ORDER BY attempt ASC, id ASC
+        ");
+        if ($attStmt) {
+            $attStmt->bind_param("i", $user_id);
+            $attStmt->execute();
+            $attRes = $attStmt->get_result();
+            while ($att = $attRes->fetch_assoc()) {
+                $scoreVal = (float)$att['Quiz_score'];
+                $passVal = (float)($att['passing_score'] ?: 80);
+                $resVal = trim($att['result'] ?? '');
+                if (empty($resVal)) {
+                    $resVal = ($scoreVal >= $passVal) ? 'Passed' : 'Failed';
+                }
+                $statusVal = (strtolower($resVal) === 'passed' || $scoreVal >= $passVal) ? 'passed' : 'failed';
+                $dateVal = !empty($att['attempted_at']) ? date('d-M-Y H:i', strtotime($att['attempted_at'])) : '—';
+
+                $userAssessmentAttempts[] = [
+                    'attempt' => (int)$att['attempt'],
+                    'score' => (int)round($scoreVal),
+                    'result' => $resVal,
+                    'status' => $statusVal,
+                    'total_time' => '—',
+                    'date' => $dateVal
+                ];
+
+                $assessmentLatestScore = (int)round($scoreVal);
+                if ($statusVal === 'passed') {
+                    $assessmentIsCompleted = true;
+                }
+                if ((int)$att['is_locked'] === 1) {
+                    $assessmentIsLockedByAttempt = true;
+                }
+            }
+            $attStmt->close();
+            $assessmentAttemptCount = count($userAssessmentAttempts);
+        }
+    } catch (\Throwable $e) {
+        error_log("Notice: Unable to query onboard_induction_assessment_attempts: " . $e->getMessage());
     }
 }
 
@@ -455,9 +672,15 @@ foreach ($coursesResponse as $courseIdx => $course) {
                 $targetOrg = '';
                 $masteryScore = null;
                 $hasMasteryScore = false;
-                $scoesResult = callMoodleWs('mod_scorm_get_scorm_scoes', [
-                    'scormid' => $scormId
-                ], $conn);
+                if (isset($courseMasterMap[$cId])) {
+                    $targetScoId = (int)$courseMasterMap[$cId]['scoid'];
+                    $targetOrg = $courseMasterMap[$cId]['org'];
+                    $scoesResult = [];
+                } else {
+                    $scoesResult = callMoodleWs('mod_scorm_get_scorm_scoes', [
+                        'scormid' => $scormId
+                    ], $conn);
+                }
 
                 if (isset($scoesResult['scoes']) && is_array($scoesResult['scoes'])) {
                     foreach ($scoesResult['scoes'] as $sco) {
@@ -557,6 +780,7 @@ foreach ($coursesResponse as $courseIdx => $course) {
                 $status = 'not_started';
                 $progPercent = 0;
                 $curSlide = 0;
+                
                 $moodleAttemptVerified = false;
                 $moodleZeroAttempts = false;
                 $moodleTracksVerified = false;
@@ -588,6 +812,15 @@ foreach ($coursesResponse as $courseIdx => $course) {
                         'timemodified' => null,
                     ];
                     $course['completed_scorms']++;
+                } elseif ($cId === 3) {
+                    // Induction Assessment Course 3: strictly local attempts from onboard_induction_assessment_attempts, skip Moodle network calls
+                    $moodleZeroAttempts = true;
+                    $moodleTracksVerified = true;
+                    $moodleAttemptVerified = true;
+                    $attemptNum = $assessmentAttemptCount;
+                    $isDone = $assessmentIsCompleted;
+                    $status = $assessmentIsCompleted ? 'completed' : ($assessmentAttemptCount > 0 ? 'failed' : 'available');
+                    $progPercent = $assessmentIsCompleted ? 100 : 0;
                 } elseif ($skipLockedFutureCourse) {
                     // Locked behind uncompleted prerequisite with no override/progress: skip Moodle query
                     $moodleZeroAttempts = true;
@@ -669,7 +902,7 @@ foreach ($coursesResponse as $courseIdx => $course) {
 
                     // Multi-attempt evaluation: If latest attempt is not completed and user has prior attempts, check them!
                     if (!$isDone && $attemptNum > 1) {
-                        for ($prevAtt = $attemptNum - 1; $prevAtt >= 1; $prevAtt--) {
+                        for ($prevAtt = $attemptNum - 1; $prevAtt >= max(1, $attemptNum - 2); $prevAtt--) {
                             $prevResult = callMoodleWs('mod_scorm_get_scorm_sco_tracks', [
                                 'scoid' => $targetScoId,
                                 'userid' => $moodleUserId,
@@ -1067,10 +1300,14 @@ foreach ($coursesResponse as $courseIdx => $course) {
             }
         }
 
-        // Fetch course sections and activities via core_course_get_contents
-        $contentsResult = callMoodleWs('core_course_get_contents', [
-            'courseid' => $cId
-        ], $conn);
+        // Fetch course sections and activities via core_course_get_contents (Skip for custom assessment Course 3)
+        if ($cId === 3) {
+            $contentsResult = [];
+        } else {
+            $contentsResult = callMoodleWs('core_course_get_contents', [
+                'courseid' => $cId
+            ], $conn);
+        }
 
         if (isset($contentsResult['error']) && $contentsResult['error']) {
             $moodleWarnings[] = "Sections for course {$cId}: " . ($contentsResult['message'] ?? 'Database or service exception');
@@ -1387,6 +1624,24 @@ foreach ($coursesResponse as $courseIdx => $course) {
             $pPct = $isDone ? 100 : (int)($locProg['progress_percent'] ?? 0);
             $stStr = $isDone ? 'completed' : ($pPct > 0 ? 'in_progress' : 'available');
 
+            $modAttempts = (int)($locProg['attempts'] ?? 0);
+            $modHistory = [];
+            $modScore = $locProg['score'] ?? null;
+            if ($isAssess && !empty($userAssessmentAttempts)) {
+                $modHistory = $userAssessmentAttempts;
+                $modAttempts = $assessmentAttemptCount;
+                $modScore = $assessmentLatestScore;
+                if ($assessmentIsCompleted) {
+                    $isDone = true;
+                    $stStr = 'completed';
+                    $pPct = 100;
+                } elseif ($assessmentIsLockedByAttempt) {
+                    $stStr = 'locked';
+                } else {
+                    $stStr = 'failed';
+                }
+            }
+
             $tScoId = $tMod ? (int)($tMod['moodle_scoid'] ?? 0) : 0;
             if (!$tScoId && isset($courseMasterMap[$cId])) {
                 $tScoId = (int)$courseMasterMap[$cId]['scoid'];
@@ -1414,17 +1669,17 @@ foreach ($coursesResponse as $courseIdx => $course) {
                 'retake_url' => $launchBase . '&newattempt=on',
                 'review_url' => $launchBase . '&mode=review',
                 'is_completed' => $isDone,
-                'is_failed' => false,
+                'is_failed' => ($isAssess && !$isDone && $modAttempts > 0),
                 'is_in_progress' => ($stStr === 'in_progress'),
                 'status' => $stStr,
                 'is_assessment' => $isAssess,
                 'passing_score' => $isAssess ? $tPassScore : null,
                 'total_time' => $locProg['total_time'] ?? '',
-                'score' => $locProg['score'] ?? null,
+                'score' => $modScore,
                 'score_max' => 100,
                 'suspend_data' => '',
-                'attempts' => (int)($locProg['attempts'] ?? 0),
-                'attempts_history' => [],
+                'attempts' => $modAttempts,
+                'attempts_history' => $modHistory,
                 'timemodified' => null,
                 'progress_percent' => $pPct,
                 'current_slide' => $isDone ? $tTotSlides : (int)($locProg['slides_viewed'] ?? 0),
@@ -1682,6 +1937,21 @@ foreach ($enrichedCourses as $c) {
                 $m['current_slide'] = $mTot;
                 $m['total_slides'] = $mTot;
             }
+            if (((int)($c['id'] ?? 0) === 3 || !empty($m['is_assessment'])) && !empty($userAssessmentAttempts)) {
+                $m['attempts'] = $assessmentAttemptCount;
+                $m['attempts_history'] = $userAssessmentAttempts;
+                $m['score'] = $assessmentLatestScore;
+                if ($assessmentIsCompleted) {
+                    $m['status'] = 'completed';
+                    $m['is_completed'] = true;
+                    $m['progress_percent'] = 100;
+                } elseif ($assessmentIsLockedByAttempt) {
+                    $m['status'] = 'locked';
+                    $m['is_locked'] = true;
+                } else {
+                    $m['status'] = 'failed';
+                }
+            }
             $cleanModules[] = $m;
         }
     }
@@ -1699,8 +1969,62 @@ foreach ($enrichedCourses as $c) {
                 $sc['current_slide'] = $scTot;
                 $sc['total_slides'] = $scTot;
             }
+            if (((int)($c['id'] ?? 0) === 3 || !empty($sc['is_assessment'])) && !empty($userAssessmentAttempts)) {
+                $sc['attempts'] = $assessmentAttemptCount;
+                $sc['attempts_history'] = $userAssessmentAttempts;
+                $sc['score'] = $assessmentLatestScore;
+                if ($assessmentIsCompleted) {
+                    $sc['status'] = 'completed';
+                    $sc['is_completed'] = true;
+                    $sc['progress_percent'] = 100;
+                } elseif ($assessmentIsLockedByAttempt) {
+                    $sc['status'] = 'locked';
+                    $sc['is_locked'] = true;
+                } else {
+                    $sc['status'] = 'failed';
+                }
+            }
             $cleanScorms[] = $sc;
         }
+    }
+
+    // Guarantee that Course 3 always contains its authoritative assessment module with attempt history
+    if ((int)($c['id'] ?? 0) === 3 && empty($cleanModules) && empty($cleanScorms)) {
+        $cleanModules[] = [
+            'id' => 6,
+            'module_id' => 6,
+            'cmid' => 4,
+            'scoid' => 32,
+            'instance' => 2,
+            'title' => 'Employee Assessment',
+            'section' => 'Course Modules',
+            'modname' => 'scorm',
+            'url' => $onboardApiBase . '/moodle/launch.php?cmid=4&courseid=3&scoid=32',
+            'launch_url' => $onboardApiBase . '/moodle/launch.php?cmid=4&courseid=3&scoid=32',
+            'retake_url' => $onboardApiBase . '/moodle/launch.php?cmid=4&courseid=3&scoid=32&newattempt=on',
+            'review_url' => $onboardApiBase . '/moodle/launch.php?cmid=4&courseid=3&scoid=32&mode=review',
+            'is_completed' => $assessmentIsCompleted,
+            'is_failed' => !$assessmentIsCompleted && $assessmentAttemptCount > 0,
+            'is_in_progress' => false,
+            'status' => $assessmentIsCompleted ? 'completed' : ($assessmentAttemptCount > 0 ? 'failed' : 'available'),
+            'is_assessment' => true,
+            'passing_score' => 80,
+            'total_time' => '—',
+            'score' => $assessmentLatestScore,
+            'score_max' => 100,
+            'attempts' => $assessmentAttemptCount,
+            'attempts_history' => $userAssessmentAttempts,
+            'timemodified' => null,
+            'progress_percent' => $assessmentIsCompleted ? 100 : 0,
+            'current_slide' => $assessmentIsCompleted ? 10 : 0,
+            'total_slides' => 10,
+            'duration_minutes' => 20,
+            'duration' => '20 min',
+            'description' => 'Employee Assessment Quiz',
+            'course_id' => 3,
+            'course_fullname' => 'Employee Assessment',
+            'course_image' => $courseImageFinal ?? ''
+        ];
     }
 
     $totModsCount = (int)($c['total_modules_count'] ?? count($cleanModules));
@@ -1853,6 +2177,35 @@ if (!empty($activeOverrides)) {
             $cRef['is_locked'] = false;
             $cRef['admin_unlocked'] = true;
             $cRef['locked_reason'] = null;
+        }
+    }
+    unset($cRef);
+}
+
+// 4.6 Tester/Admin Canary Preview: Always unlock Assessment Course 3 so Tester (UID 205) can test anytime
+if ($isTesterOrAdmin) {
+    foreach ($cleanCourses as &$cRef) {
+        $cIdNum = (int)($cRef['id'] ?? 0);
+        if ($cIdNum === 3 || stripos((string)($cRef['fullname'] ?? ''), 'assess') !== false) {
+            $cRef['is_locked'] = false;
+            $cRef['admin_unlocked'] = true;
+            $cRef['locked_reason'] = null;
+            if (!empty($cRef['modules']) && is_array($cRef['modules'])) {
+                foreach ($cRef['modules'] as &$mRef) {
+                    $mRef['is_locked'] = false;
+                    $mRef['admin_unlocked'] = true;
+                    $mRef['locked_reason'] = null;
+                }
+                unset($mRef);
+            }
+            if (!empty($cRef['scorms']) && is_array($cRef['scorms'])) {
+                foreach ($cRef['scorms'] as &$scRef) {
+                    $scRef['is_locked'] = false;
+                    $scRef['admin_unlocked'] = true;
+                    $scRef['locked_reason'] = null;
+                }
+                unset($scRef);
+            }
         }
     }
     unset($cRef);

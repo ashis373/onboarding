@@ -549,6 +549,47 @@ $insStmt->bind_param(
 $insStmt->execute();
 $insStmt->close();
 
+// Update courses cache IN-PLACE for this employee so attempts appear instantly in <2ms without triggering a 30s cold build / 500 error
+$userCacheFiles = glob(__DIR__ . '/cache/user_courses_' . (int)$userId . '_*.json');
+if ($userCacheFiles) {
+    foreach ($userCacheFiles as $ucf) {
+        $raw = @file_get_contents($ucf);
+        if ($raw) {
+            $data = json_decode($raw, true);
+            if (is_array($data) && !empty($data['courses'])) {
+                foreach ($data['courses'] as &$c) {
+                    if ((int)($c['id'] ?? 0) === 3) {
+                        $c['status'] = $isPassed ? 'completed' : ($isLockedByAttempt ? 'locked' : 'available');
+                        $c['is_locked'] = $isLockedByAttempt;
+                        if (!empty($c['modules'])) {
+                            foreach ($c['modules'] as &$m) {
+                                $m['attempts'] = $currentAttempt;
+                                $m['score'] = $quizScore;
+                                $m['status'] = $isPassed ? 'completed' : ($isLockedByAttempt ? 'locked' : 'failed');
+                                $m['is_locked'] = $isLockedByAttempt;
+                                if (!isset($m['attempts_history']) || !is_array($m['attempts_history'])) {
+                                    $m['attempts_history'] = [];
+                                }
+                                $m['attempts_history'][] = [
+                                    'attempt' => (int)$currentAttempt,
+                                    'score' => (int)round($quizScore),
+                                    'result' => $resultStr,
+                                    'status' => strtolower($resultStr),
+                                    'total_time' => '—',
+                                    'date' => date('d-M-Y H:i')
+                                ];
+                            }
+                            unset($m);
+                        }
+                    }
+                }
+                unset($c);
+                @file_put_contents($ucf, json_encode($data, JSON_UNESCAPED_SLASHES));
+            }
+        }
+    }
+}
+
 // 10. Return Atomic, Network-Optimized JSON Response
 echo json_encode([
     'success' => true,

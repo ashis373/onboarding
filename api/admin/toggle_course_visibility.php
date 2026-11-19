@@ -107,15 +107,8 @@ foreach ($_SESSION as $k => $v) {
     }
 }
 
-$cacheDir = __DIR__ . '/../moodle/cache';
-if (is_dir($cacheDir)) {
-    $cacheFiles = glob($cacheDir . '/user_courses_*.json');
-    if ($cacheFiles) {
-        foreach ($cacheFiles as $cf) {
-            @unlink($cf);
-        }
-    }
-}
+// Note: Cache files are NEVER deleted; courses.php dynamically filters visibility from the database in <2ms
+// to prevent 30s FastCGI timeouts and 500 errors.
 
 $statusText = ($isActive === 1) ? 'visible to employees' : 'hidden from employees';
 

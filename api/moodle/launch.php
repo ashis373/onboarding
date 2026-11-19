@@ -72,7 +72,7 @@ if ($cmid || $courseid || $targetModuleId) {
         6  => ['scoid' => 8,  'courseid' => 2,  'org' => 'M1_-_Onboarding_Program_ORG', 'title' => 'Employee Onboarding 1 SCORM'],
         2  => ['scoid' => 2,  'courseid' => 2,  'org' => 'M1_-_Onboarding_Program_ORG', 'title' => 'Employee Onboarding Module'],
         5  => ['scoid' => 6,  'courseid' => 2,  'org' => 'Assessment_ORG',               'title' => 'Employee Assessment'],
-        4  => ['scoid' => 4,  'courseid' => 3,  'org' => 'Assessment_ORG',               'title' => 'Employee_Assessment'],
+        4  => ['scoid' => 32, 'courseid' => 3,  'org' => 'M_11_-_Assessment_ORG',        'title' => 'Employee_Assessment'],
         7  => ['scoid' => 10, 'courseid' => 4,  'org' => 'M2_-_Work_Rules_and_Work_Life_ORG', 'title' => 'Work Rules and Work Life M-2'],
         8  => ['scoid' => 12, 'courseid' => 5,  'org' => 'M3_-_Leave_&_Holidays_ORG',   'title' => 'Leave & Holidays'],
         9  => ['scoid' => 14, 'courseid' => 6,  'org' => 'M5_-_IT,_Confidentiality_&_Security_ORG', 'title' => 'IT, Confidentiality & Security'],
@@ -87,7 +87,7 @@ if ($cmid || $courseid || $targetModuleId) {
     // Maps Moodle Course ID -> primary cmid, scoid, organization
     $courseMasterMap = [
         2  => ['cmid' => 6,  'scoid' => 8,  'org' => 'M1_-_Onboarding_Program_ORG'],
-        3  => ['cmid' => 4,  'scoid' => 4,  'org' => 'Assessment_ORG'],
+        3  => ['cmid' => 4,  'scoid' => 32, 'org' => 'M_11_-_Assessment_ORG'],
         4  => ['cmid' => 7,  'scoid' => 10, 'org' => 'M2_-_Work_Rules_and_Work_Life_ORG'],
         5  => ['cmid' => 8,  'scoid' => 12, 'org' => 'M3_-_Leave_&_Holidays_ORG'],
         6  => ['cmid' => 9,  'scoid' => 14, 'org' => 'M5_-_IT,_Confidentiality_&_Security_ORG'],
@@ -102,7 +102,7 @@ if ($cmid || $courseid || $targetModuleId) {
     // Maps Onboard internal module_id -> cmid, scoid, courseid, organization
     $moduleMasterMap = [
         5  => ['cmid' => 6,  'scoid' => 8,  'courseid' => 2,  'org' => 'M1_-_Onboarding_Program_ORG'],
-        6  => ['cmid' => 4,  'scoid' => 4,  'courseid' => 3,  'org' => 'Assessment_ORG'],
+        6  => ['cmid' => 4,  'scoid' => 32, 'courseid' => 3,  'org' => 'M_11_-_Assessment_ORG'],
         7  => ['cmid' => 7,  'scoid' => 10, 'courseid' => 4,  'org' => 'M2_-_Work_Rules_and_Work_Life_ORG'],
         8  => ['cmid' => 8,  'scoid' => 12, 'courseid' => 5,  'org' => 'M3_-_Leave_&_Holidays_ORG'],
         9  => ['cmid' => 9,  'scoid' => 14, 'courseid' => 6,  'org' => 'M5_-_IT,_Confidentiality_&_Security_ORG'],
@@ -113,6 +113,17 @@ if ($cmid || $courseid || $targetModuleId) {
         14 => ['cmid' => 15, 'scoid' => 26, 'courseid' => 12, 'org' => 'M9_-_HR_Processes_&_Employee_Support_ORG'],
         15 => ['cmid' => 16, 'scoid' => 28, 'courseid' => 13, 'org' => 'M10_-_Safety,_Security,_and_Workplace_Essentials_ORG'],
     ];
+
+    // Induction Assessment Course 3 Authoritative Resolution & Database Self-Healing
+    if ($courseid === 3 || $cmid === 4 || $targetModuleId === 6 || (!empty($passedTitle) && stripos($passedTitle, 'assess') !== false)) {
+        $courseid = 3;
+        $cmid = 4;
+        $scoid = 32;
+        $currentorg = 'M_11_-_Assessment_ORG';
+        if ($conn) {
+            @$conn->query("UPDATE onboard_modules SET moodle_cmid = 4, moodle_scoid = 32 WHERE moodle_course_id = 3 OR id = 6");
+        }
+    }
 
     // Resolution Step 1: If cmid provided, resolve from cmidMasterMap
     if ($cmid && isset($cmidMasterMap[$cmid])) {

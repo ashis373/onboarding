@@ -6,7 +6,8 @@ A sequential, interactive e-learning and induction platform designed for new hir
 
 ## 📋 Documentation Quick Links
 - **[WORKFLOW.md](WORKFLOW.md)**: ⚡ Step-by-step guide on what happens when a new employee lands on the portal.
-- **[README_DATABASE.md](README_DATABASE.md)**: 🗄 Exhaustive schema reference for all 7 active MySQL tables.
+- **[README_DEADLINE_POLICY.md](README_DEADLINE_POLICY.md)**: 🔒 Complete implementation guide for Onboarding Deadlines, Working-Day Calculations, and Individual Manager Extensions.
+- **[README_DATABASE.md](README_DATABASE.md)**: 🗄 Exhaustive schema reference for all active MySQL tables.
 
 ---
 

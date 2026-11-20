@@ -81,6 +81,32 @@ interface ApiResponse {
   };
 }
 
+// Helper to convert any timestamp to Indian Standard Time (Asia/Kolkata)
+const formatDateTimeIST = (dateVal?: string | null, fallbackFmt?: string) => {
+  if (!dateVal && !fallbackFmt) return "—";
+  try {
+    const raw = dateVal || fallbackFmt || "";
+    if (!raw) return "—";
+    // If it's already an ISO or datetime string without timezone, assume UTC from server
+    const isoStr = (raw.endsWith("Z") || raw.includes("+") || raw.includes("T"))
+      ? raw
+      : raw.replace(" ", "T") + "Z";
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return fallbackFmt || raw;
+    return d.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return fallbackFmt || dateVal || "—";
+  }
+};
+
 export default function AdminAssessmentResults() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -602,9 +628,9 @@ export default function AdminAssessmentResults() {
                           )}
                         </td>
 
-                        {/* Submitted At */}
+                        {/* Submitted At (Indian Standard Time) */}
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-[11px]">
-                          {att.attempted_at_fmt}
+                          {formatDateTimeIST(att.attempted_at, att.attempted_at_fmt)}
                         </td>
 
                         {/* Action: Unlock */}

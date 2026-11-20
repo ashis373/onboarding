@@ -5,6 +5,8 @@
  * Supports unlocking locked employees directly from the Admin Portal.
  */
 
+date_default_timezone_set('Asia/Kolkata');
+
 header("Content-Type: application/json; charset=UTF-8");
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
@@ -470,7 +472,16 @@ if ($res) {
             'email_to' => $row['email_to'],
             'email_cc' => $row['email_cc'],
             'attempted_at' => $row['attempted_at'],
-            'attempted_at_fmt' => date('d-M-Y H:i', strtotime($row['attempted_at'])),
+            'attempted_at_fmt' => (function($raw) {
+                if (empty($raw)) return '—';
+                try {
+                    $dt = new DateTime($raw, new DateTimeZone('UTC'));
+                    $dt->setTimezone(new DateTimeZone('Asia/Kolkata'));
+                    return $dt->format('d-M-Y h:i A');
+                } catch (\Throwable $e) {
+                    return date('d-M-Y h:i A', strtotime($raw . ' UTC'));
+                }
+            })($row['attempted_at']),
             'photo' => !empty($row['profile_img']) ? '/internal/corhis/dist/img/user/' . $row['profile_img'] : ''
         ];
     }

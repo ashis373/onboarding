@@ -33,6 +33,7 @@ const AdminEmails = lazy(() => import("./pages/AdminEmails"));
 const AdminApiUsage = lazy(() => import("./pages/AdminApiUsage"));
 const AdminAssessmentResults = lazy(() => import("./pages/AdminAssessmentResults"));
 const AdminCertificates = lazy(() => import("./pages/AdminCertificates"));
+const AdminDeadlineLocked = lazy(() => import("./pages/AdminDeadlineLocked"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -158,6 +159,18 @@ const App = () => (
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/admin/deadline-locked-employees"
+            element={
+              <ProtectedRoute>
+                <AdminGate>
+                  <AdminDeadlineLocked />
+                </AdminGate>
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/admin/deadline-lockouts" element={<Navigate to="/admin/deadline-locked-employees" replace />} />
+          <Route path="/admin/locked-employees" element={<Navigate to="/admin/deadline-locked-employees" replace />} />
           <Route
             path="/admin/courses"
             element={

@@ -437,13 +437,27 @@ $query = "
         a.email_cc,
         a.attempted_at,
         u.profile_img,
-        IFNULL(ovr.is_unlocked, 0) AS has_admin_unlocked
+        IFNULL(ovr.is_unlocked, 0) AS has_admin_unlocked,
+        IFNULL(later.has_later_passed, 0) AS has_later_passed,
+        later.later_passed_score,
+        later.later_passed_attempt,
+        IFNULL(later.total_user_attempts, 1) AS total_user_attempts
     FROM onboard_induction_assessment_attempts a
     LEFT JOIN user u ON u.uid = a.user_id
     LEFT JOIN onboard_course_unlock_overrides ovr 
            ON ovr.user_id = a.user_id 
           AND ovr.moodle_course_id = a.course_id 
           AND ovr.is_unlocked = 1
+    LEFT JOIN (
+        SELECT 
+            user_id,
+            COUNT(*) AS total_user_attempts,
+            MAX(CASE WHEN (result = 'Passed' OR Quiz_score >= 80) THEN 1 ELSE 0 END) AS has_later_passed,
+            MAX(CASE WHEN (result = 'Passed' OR Quiz_score >= 80) THEN Quiz_score ELSE NULL END) AS later_passed_score,
+            MAX(CASE WHEN (result = 'Passed' OR Quiz_score >= 80) THEN attempt ELSE NULL END) AS later_passed_attempt
+        FROM onboard_induction_assessment_attempts
+        GROUP BY user_id
+    ) later ON later.user_id = a.user_id
     WHERE {$whereClause}
     ORDER BY a.attempted_at DESC
     LIMIT {$limit} OFFSET {$offset}
@@ -468,6 +482,10 @@ if ($res) {
             'result' => $row['result'],
             'is_locked' => (bool)$row['is_locked'],
             'has_admin_unlocked' => (bool)$row['has_admin_unlocked'],
+            'has_later_passed' => (bool)$row['has_later_passed'],
+            'later_passed_score' => $row['later_passed_score'] !== null ? (float)$row['later_passed_score'] : null,
+            'later_passed_attempt' => $row['later_passed_attempt'] !== null ? (int)$row['later_passed_attempt'] : null,
+            'total_user_attempts' => (int)($row['total_user_attempts'] ?? 1),
             'email_sent' => (bool)$row['email_sent'],
             'email_to' => $row['email_to'],
             'email_cc' => $row['email_cc'],

@@ -29,7 +29,6 @@ import {
 import { apiGet } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { AdminCourseAccessModal } from "@/components/AdminCourseAccessModal";
-import { AdminExtendDeadlineModal } from "@/components/AdminExtendDeadlineModal";
 import { downloadCertificatePdf } from "@/lib/certificateGenerator";
 
 interface AdminEmployeesResponse {
@@ -165,7 +164,6 @@ const AdminEmployees = () => {
 
   // Modal and View Mode States
   const [accessModalEmployee, setAccessModalEmployee] = useState<any | null>(null);
-  const [deadlineModalEmployee, setDeadlineModalEmployee] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>(() => {
     const saved = localStorage.getItem('admin_employee_view_mode_v2');
     if (saved === 'grid' || saved === 'table') return saved;
@@ -1093,19 +1091,6 @@ const AdminEmployees = () => {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setDeadlineModalEmployee(r)}
-                                className={`h-8 px-2.5 rounded-xl border text-xs font-bold gap-1 cursor-pointer shadow-2xs transition-all ${isTraineeLocked
-                                  ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
-                                  : 'border-blue-200 text-blue-700 bg-blue-50/60 hover:bg-blue-100'
-                                  }`}
-                                title="Extend Onboarding Deadline"
-                              >
-                                <Calendar className="h-3 w-3 text-blue-600" />
-                                <span>Extend</span>
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
                                 onClick={() => openLmsReport(r)}
                                 className="flex-1 h-8 rounded-xl border-slate-200 text-xs font-bold text-slate-700 hover:text-[#00A389] hover:bg-[#E6F7F4]/60 hover:border-[#00A389]/40 gap-1.5 cursor-pointer shadow-2xs transition-all"
                               >
@@ -1324,19 +1309,6 @@ const AdminEmployees = () => {
                                     <Button
                                       variant="outline"
                                       size="sm"
-                                      onClick={() => setDeadlineModalEmployee(r)}
-                                      className={`h-8 px-2.5 rounded-xl border text-xs font-bold gap-1.5 cursor-pointer shadow-2xs transition-all ${isTraineeLocked
-                                        ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
-                                        : 'border-blue-200 text-blue-700 bg-blue-50/60 hover:bg-blue-100'
-                                        }`}
-                                      title="Extend Onboarding Deadline"
-                                    >
-                                      <Calendar className="h-3 w-3 text-blue-600" />
-                                      <span>Extend</span>
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
                                       onClick={() => openLmsReport(r)}
                                       className="h-8 px-3 rounded-xl border-slate-200 text-xs font-bold text-slate-700 hover:text-[#00A389] hover:bg-[#E6F7F4]/60 hover:border-[#00A389]/40 gap-1.5 cursor-pointer shadow-2xs transition-all"
                                       title="View detailed employee training audit report"
@@ -1443,13 +1415,6 @@ const AdminEmployees = () => {
         onClose={() => setAccessModalEmployee(null)}
         employeeUid={accessModalEmployee?.uid}
         employeeName={accessModalEmployee?.name}
-        onUpdated={() => refetch()}
-      />
-
-      <AdminExtendDeadlineModal
-        isOpen={Boolean(deadlineModalEmployee)}
-        onClose={() => setDeadlineModalEmployee(null)}
-        employee={deadlineModalEmployee}
         onUpdated={() => refetch()}
       />
     </Layout>

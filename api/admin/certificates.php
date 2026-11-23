@@ -319,6 +319,66 @@ if ($res) {
     }
 }
 
+// Attach full chronological download history for each candidate
+$uids = array_map(function($r) { return (int)$r['uid']; }, $records);
+$downloadHistoryByUser = [];
+if (!empty($uids)) {
+    $uidListStr = implode(',', $uids);
+    $dlHistoryQuery = "
+        SELECT 
+            d.id,
+            d.user_id,
+            d.certificate_number,
+            d.downloaded_by,
+            d.emp_code,
+            d.emp_name,
+            d.ip_address,
+            d.downloaded_at,
+            CONCAT(IFNULL(u.firstname, ''), ' ', IFNULL(u.lastname, '')) AS downloaded_by_name
+        FROM onboard_certificate_downloads d
+        LEFT JOIN user u ON u.uid = d.downloaded_by
+        WHERE d.user_id IN ({$uidListStr})
+        ORDER BY d.downloaded_at DESC, d.id DESC
+    ";
+    $dlRes = $conn->query($dlHistoryQuery);
+    if ($dlRes) {
+        while ($dlRow = $dlRes->fetch_assoc()) {
+            $uId = (int)$dlRow['user_id'];
+            if (!isset($downloadHistoryByUser[$uId])) {
+                $downloadHistoryByUser[$uId] = [];
+            }
+            
+            $dlAtRaw = $dlRow['downloaded_at'];
+            $dlAtFmt = !empty($dlAtRaw) ? date('d-M-Y h:i A', strtotime($dlAtRaw)) : '—';
+            
+            $isSelf = ((int)$dlRow['downloaded_by'] === $uId || (int)$dlRow['downloaded_by'] === 0);
+            $byText = $isSelf ? 'Employee (Self)' : (!empty(trim($dlRow['downloaded_by_name'])) ? 'Admin: ' . trim($dlRow['downloaded_by_name']) : 'Admin');
+
+            $downloadHistoryByUser[$uId][] = [
+                'id' => (int)$dlRow['id'],
+                'downloaded_at' => $dlAtRaw,
+                'downloaded_at_fmt' => $dlAtFmt,
+                'downloaded_by_id' => (int)$dlRow['downloaded_by'],
+                'downloaded_by_name' => $byText,
+                'is_self' => $isSelf,
+                'ip_address' => $dlRow['ip_address'] ?? '—'
+            ];
+        }
+    }
+}
+
+foreach ($records as &$rec) {
+    $uId = $rec['uid'];
+    $history = $downloadHistoryByUser[$uId] ?? [];
+    $totalDl = count($history);
+    foreach ($history as $idx => &$item) {
+        $item['download_number'] = $totalDl - $idx;
+    }
+    unset($item);
+    $rec['download_history'] = $history;
+}
+unset($rec);
+
 // Check master switch status
 $allowEmployeeDownload = isEmployeeCertificateDownloadAllowed($conn);
 

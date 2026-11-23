@@ -53,6 +53,10 @@ interface AssessmentAttempt {
   result: "Passed" | "Failed";
   is_locked: boolean;
   has_admin_unlocked: boolean;
+  has_later_passed?: boolean;
+  later_passed_score?: number | null;
+  later_passed_attempt?: number | null;
+  total_user_attempts?: number;
   email_sent: boolean;
   email_to: string | null;
   email_cc: string | null;
@@ -623,6 +627,10 @@ export default function AdminAssessmentResults() {
                         <td className="px-3 py-3 text-center">
                           {att.result === "Passed" ? (
                             <span className="text-emerald-700 dark:text-emerald-400 font-medium text-[11px]">Completed</span>
+                          ) : att.has_later_passed ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full font-bold text-[11px] border border-emerald-200 dark:border-emerald-800">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Passed in Att #{att.later_passed_attempt || 2}
+                            </span>
                           ) : isLockedOut ? (
                             <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded-md font-bold text-[11px]">
                               <Lock className="w-3 h-3" /> Locked (2/2)
@@ -632,7 +640,9 @@ export default function AdminAssessmentResults() {
                               <Unlock className="w-3 h-3" /> Admin Unlocked
                             </span>
                           ) : (
-                            <span className="text-amber-700 dark:text-amber-400 font-medium text-[11px]">Retake Open</span>
+                            <span className="text-amber-700 dark:text-amber-400 font-medium text-[11px] bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
+                              Retake Open
+                            </span>
                           )}
                         </td>
 

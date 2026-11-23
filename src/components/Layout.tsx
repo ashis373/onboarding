@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,7 +20,8 @@ import {
   Mail,
   Activity,
   Award,
-  ArrowLeft
+  ArrowLeft,
+  Lock
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import corhisLogo from "@/assets/corhis-logo.png";
@@ -86,20 +88,36 @@ export const Layout = ({
     { id: "attempt_history", icon: Clock, label: "Attempt History", path: "/attempt-history" },
   ];
 
+  const isUserAdmin = Boolean(user && (['26', '64', '205'].includes(String(user.uid)) || String(user.user_role) === '1'));
+  const effectiveIsAdmin = Boolean(isAdmin || location.pathname.startsWith('/admin'));
+
+  const { data: lockCountData } = useQuery<{ success: boolean; total_locked: number }>({
+    queryKey: ['admin_deadline_lock_count'],
+    queryFn: async () => {
+      try {
+        const res = await apiGet<any>('/admin/deadline_locked_employees.php?count_only=1');
+        return res;
+      } catch {
+        return { success: false, total_locked: 0 };
+      }
+    },
+    enabled: effectiveIsAdmin,
+    staleTime: 30 * 1000,
+  });
+  const lockedCount = lockCountData?.total_locked ?? 0;
+
   const adminNavItems = [
     { id: "admin_dash", icon: BarChart3, label: "Dashboard", path: "/admin" },
     { id: "admin_courses", icon: BookOpen, label: "Courses", path: "/admin/courses" },
     { id: "admin_tracking", icon: Users, label: "Employee Tracking", path: "/admin/employees" },
     { id: "admin_assessments", icon: ClipboardCheck, label: "Assessment Results", path: "/admin/assessments" },
+    { id: "admin_deadline_lockouts", icon: Lock, label: "Deadline Lockouts", path: "/admin/deadline-locked-employees", badge: lockedCount },
     { id: "admin_reports", icon: FileText, label: "Reports", path: "/admin/reports" },
     { id: "admin_certificates", icon: Award, label: "Certificate Downloads", path: "/admin/certificates" },
     { id: "admin_emails", icon: Mail, label: "Email Settings", path: "/admin/emails" },
     { id: "admin_settings", icon: Settings, label: "Settings", path: "/admin/settings" },
     { id: "admin_api_usage", icon: Activity, label: "API Usage", path: "/admin/api-usage" },
   ];
-
-  const isUserAdmin = Boolean(user && (['26', '64', '205'].includes(String(user.uid)) || String(user.user_role) === '1'));
-  const effectiveIsAdmin = Boolean(isAdmin || location.pathname.startsWith('/admin'));
 
   const navItems = effectiveIsAdmin ? adminNavItems : employeeNavItems;
 
@@ -248,11 +266,18 @@ export const Layout = ({
                       <span className="absolute left-0 top-0 h-full w-[3.5px] bg-[#00A389] rounded-r" />
                     )}
                     <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-[#00A389]' : 'text-slate-400'}`} />
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="text-xs font-bold leading-tight">{item.label}</span>
-                      {item.subtitle && (
-                        <span className="text-[10px] text-slate-400 font-medium leading-tight truncate">
-                          {item.subtitle}
+                    <div className="flex items-center justify-between flex-1 min-w-0">
+                      <div className="flex flex-col text-left min-w-0">
+                        <span className="text-xs font-bold leading-tight">{item.label}</span>
+                        {item.subtitle && (
+                          <span className="text-[10px] text-slate-400 font-medium leading-tight truncate">
+                            {item.subtitle}
+                          </span>
+                        )}
+                      </div>
+                      {Boolean(item.badge && item.badge > 0) && (
+                        <span className="ml-2 text-[10px] font-black bg-rose-500 text-white px-1.5 py-0.5 rounded-full shrink-0 animate-pulse">
+                          {item.badge}
                         </span>
                       )}
                     </div>

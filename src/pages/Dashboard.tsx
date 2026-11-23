@@ -211,6 +211,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
     passing_score: number;
     latest_score: number | null;
     is_passed: boolean;
+    allow_employee_certificate_download?: boolean;
     is_locked: boolean;
     can_retake: boolean;
     admin_unlocked?: boolean;
@@ -293,11 +294,14 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
   };
 
   const [downloadingEmployeeCert, setDownloadingEmployeeCert] = useState(false);
+  const isCertDownloadAllowed = Boolean(
+    (moodleData?.allow_employee_certificate_download ?? assessmentHistoryData?.allow_employee_certificate_download)
+  );
 
   const handleDownloadEmployeeCertificate = async () => {
-    const candidateName = [user?.firstname, user?.lastname].filter(Boolean).join(" ").trim() || moodleData?.employee?.name || "HexaLearn Employee";
-    const candidateCode = user?.emp_code || (user?.uid ? `HL${user.uid}` : (moodleData?.employee?.uid ? `HL${moodleData.employee.uid}` : "HL000"));
-    const candidateUid = Number(user?.uid || moodleData?.employee?.uid || 0);
+    const candidateName = [user?.firstname, user?.lastname].filter(Boolean).join(" ").trim() || assessmentHistoryData?.employee?.name || moodleData?.employee?.name || "HexaLearn Employee";
+    const candidateCode = user?.emp_code || (user?.uid ? `HL${user.uid}` : (assessmentHistoryData?.employee?.emp_code || (moodleData?.employee?.uid ? `HL${moodleData.employee.uid}` : "HL000")));
+    const candidateUid = Number(user?.uid || assessmentHistoryData?.employee?.uid || moodleData?.employee?.uid || 0);
 
     setDownloadingEmployeeCert(true);
     try {
@@ -1991,7 +1995,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                       )}
 
                       <div className="flex items-center justify-center sm:justify-start gap-2.5 pt-0.5 flex-wrap">
-                        {Boolean(moodleData?.allow_employee_certificate_download && isPassed) && (
+                        {Boolean(isCertDownloadAllowed && isPassed) && (
                           <button
                             onClick={handleDownloadEmployeeCertificate}
                             disabled={downloadingEmployeeCert}
@@ -2598,7 +2602,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                         </div>
 
                         {/* Download Certificate Button: Shows ONLY if Passed and Admin has turned ON the master switch (0 extra API calls) */}
-                        {Boolean(moodleData?.allow_employee_certificate_download && isOverallPassed) && (
+                        {Boolean(isCertDownloadAllowed && isOverallPassed) && (
                           <div className="shrink-0 self-stretch sm:self-center">
                             <button
                               onClick={handleDownloadEmployeeCertificate}

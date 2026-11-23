@@ -25,7 +25,8 @@ import {
   ShieldAlert,
   Copy,
   Check,
-  ExternalLink
+  ExternalLink,
+  History
 } from "lucide-react";
 import {
   Dialog,
@@ -40,6 +41,17 @@ import { apiGet, apiPost } from "@/lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/components/ui/use-toast";
 import { downloadCertificatePdf, generateCertificateDataUrl } from "@/lib/certificateGenerator";
+
+export interface CertificateDownloadEvent {
+  id: number;
+  download_number: number;
+  downloaded_at: string;
+  downloaded_at_fmt: string;
+  downloaded_by_id: number;
+  downloaded_by_name: string;
+  is_self: boolean;
+  ip_address: string;
+}
 
 interface CertificateRecord {
   uid: number;
@@ -60,6 +72,7 @@ interface CertificateRecord {
   first_downloaded_fmt: string | null;
   last_downloaded_at: string | null;
   last_downloaded_fmt: string | null;
+  download_history?: CertificateDownloadEvent[];
 }
 
 interface CertificatesResponse {
@@ -98,6 +111,7 @@ export default function AdminCertificates() {
   // Action States
   const [downloadingUid, setDownloadingUid] = useState<number | null>(null);
   const [previewRecord, setPreviewRecord] = useState<CertificateRecord | null>(null);
+  const [historyRecord, setHistoryRecord] = useState<CertificateRecord | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [generatingPreview, setGeneratingPreview] = useState(false);
   const [copiedCertNo, setCopiedCertNo] = useState<string | null>(null);
@@ -434,38 +448,12 @@ export default function AdminCertificates() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Test Download Certificate Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleOpenTestModal}
-              className="gap-1.5 h-9 text-xs font-bold border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 hover:border-blue-400 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800 shadow-2xs"
-            >
-              <Download className="h-4 w-4 text-blue-600" />
-              <span>🧪 Test Download Certificate</span>
-            </Button>
-
-            {/* Verify Certificate Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setVerifyResult(null);
-                setVerifyInput("");
-                setVerifyModalOpen(true);
-              }}
-              className="gap-1.5 h-9 text-xs font-bold border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800 shadow-2xs"
-            >
-              <ShieldCheck className="h-4 w-4 text-emerald-600" />
-              <span>Verify Certificate</span>
-            </Button>
-
             <Button
               variant="outline"
               size="sm"
               onClick={() => refetch()}
               disabled={isFetching}
-              className="gap-1.5 h-9 text-xs font-semibold"
+              className="gap-1.5 h-9 text-xs font-semibold shadow-2xs"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
               <span>Refresh</span>
@@ -718,14 +706,7 @@ export default function AdminCertificates() {
                         {/* Certificate Number (Unique & Reusable) */}
                         <td className="py-3.5 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
-                            <span
-                              onClick={() => {
-                                setVerifyInput(r.certificate_number);
-                                handleVerify(r.certificate_number);
-                              }}
-                              className="font-mono text-xs font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-lg cursor-pointer hover:bg-emerald-100 transition-colors"
-                              title="Click to instantly verify this certificate"
-                            >
+                            <span className="font-mono text-xs font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-lg select-all">
                               {r.certificate_number}
                             </span>
                             <button
@@ -802,10 +783,14 @@ export default function AdminCertificates() {
                         {/* Download Count */}
                         <td className="py-3.5 px-4 whitespace-nowrap text-center">
                           {hasDownloaded ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                            <button
+                              onClick={() => setHistoryRecord(r)}
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:hover:bg-emerald-900 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 cursor-pointer transition-colors shadow-2xs"
+                              title="Click to view full download history and all previous timestamps"
+                            >
                               <CheckCircle2 className="h-3 w-3 text-emerald-600" />
                               <span>{r.download_count}x</span>
-                            </span>
+                            </button>
                           ) : (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                               Never
@@ -814,8 +799,25 @@ export default function AdminCertificates() {
                         </td>
 
                         {/* Last Downloaded At */}
-                        <td className="py-3.5 px-4 whitespace-nowrap font-mono text-[11px] text-slate-600 dark:text-slate-400">
-                          {r.last_downloaded_fmt || "—"}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          {hasDownloaded ? (
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                                {r.last_downloaded_fmt || "—"}
+                              </span>
+                              {r.download_count > 1 && (
+                                <button
+                                  onClick={() => setHistoryRecord(r)}
+                                  className="text-[10px] font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400 hover:underline cursor-pointer inline-flex items-center gap-0.5 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800"
+                                  title="Click to view all download timestamps"
+                                >
+                                  <span>View all {r.download_count}x</span>
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="font-mono text-[11px] text-slate-400">—</span>
+                          )}
                         </td>
 
                         {/* Actions */}
@@ -1006,241 +1008,103 @@ export default function AdminCertificates() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-
-        {/* Certificate Internal Verification Modal */}
-        <Dialog open={verifyModalOpen} onOpenChange={setVerifyModalOpen}>
+        {/* Full Download History Audit Log Modal */}
+        <Dialog open={!!historyRecord} onOpenChange={(open) => !open && setHistoryRecord(null)}>
           <DialogContent className="max-w-xl p-6 rounded-2xl">
             <DialogHeader className="space-y-1">
               <div className="flex items-center gap-2">
-                <span className="p-1.5 bg-emerald-100 text-emerald-800 rounded-lg">
-                  <ShieldCheck className="h-5 w-5" />
+                <span className="p-1.5 bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 rounded-lg">
+                  <History className="h-5 w-5" />
                 </span>
                 <DialogTitle className="text-lg font-black">
-                  Internal Certificate Verification
+                  Certificate Download History & Audit Log
                 </DialogTitle>
               </div>
               <DialogDescription className="text-xs">
-                Validate whether an onboarding induction certificate is genuine by Certificate Number or Employee Code.
+                Detailed chronological log of every time this candidate's certificate was generated and downloaded.
               </DialogDescription>
             </DialogHeader>
 
-            {/* Verification Search Bar */}
-            <div className="my-2 space-y-3">
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="Enter Certificate Number (e.g. HL-2026-00001) or Employee Code..."
-                  value={verifyInput}
-                  onChange={(e) => setVerifyInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleVerify()}
-                  className="h-10 text-xs font-mono rounded-xl flex-1"
-                />
-                <Button
-                  onClick={() => handleVerify()}
-                  disabled={verifying}
-                  className="h-10 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl gap-1.5"
-                >
-                  {verifying ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Search className="h-3.5 w-3.5" />
-                  )}
-                  <span>Verify</span>
-                </Button>
-              </div>
-
-              {/* Verification Result Display */}
-              {verifyResult && (
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  {verifyResult.is_valid && verifyResult.certificate ? (
-                    <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-black text-sm">
-                          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                          <span>OFFICIAL & AUTHENTIC CERTIFICATE</span>
-                        </div>
-                        <Badge className="bg-emerald-600 text-white font-mono text-[11px]">
-                          VERIFIED
-                        </Badge>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-emerald-200/60 dark:border-emerald-800/60">
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Certificate Number:</span>
-                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                            {verifyResult.certificate.certificate_number}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Recipient Candidate:</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">
-                            {verifyResult.certificate.emp_name} ({verifyResult.certificate.emp_code})
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Assessment Score:</span>
-                          <span className="font-bold text-emerald-700 dark:text-emerald-400">
-                            {verifyResult.certificate.quiz_score}% (Attempt #{verifyResult.certificate.attempt_number})
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Completion Date:</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">
-                            {verifyResult.certificate.passed_date_fmt}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Total Downloads:</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">
-                            {verifyResult.certificate.download_count} times
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Last Downloaded:</span>
-                          <span className="font-mono text-slate-600 dark:text-slate-400">
-                            {verifyResult.certificate.last_downloaded_fmt || "Not yet downloaded"}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-emerald-200/60 dark:border-emerald-800/60 text-[11px] text-slate-500 flex items-center justify-between">
-                        <span>Authorized By: <strong>{verifyResult.certificate.authorized_signatory}</strong></span>
-                        <span className="text-[10px] text-slate-400">Verified: {verifyResult.certificate.verified_at}</span>
-                      </div>
+            {historyRecord && (
+              <div className="space-y-4 my-2">
+                {/* Candidate Overview Card */}
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-900 dark:text-white text-sm">
+                      {historyRecord.name}
                     </div>
-                  ) : (
-                    <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 space-y-2">
-                      <div className="flex items-center gap-2 text-rose-800 dark:text-rose-300 font-bold text-sm">
-                        <ShieldAlert className="h-5 w-5 text-rose-600" />
-                        <span>UNVERIFIED / INVALID CERTIFICATE</span>
-                      </div>
-                      <p className="text-xs text-rose-700 dark:text-rose-300">
-                        {verifyResult.message || "No authentic HexaLearn certificate matches this query. The number may be forged or uncertified."}
-                      </p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                      <span className="font-mono font-semibold">{historyRecord.emp_code}</span>
+                      <span>•</span>
+                      <span>{historyRecord.dept_name}</span>
                     </div>
-                  )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono text-xs font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-md block">
+                      {historyRecord.certificate_number}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 mt-1 block">
+                      Total: {historyRecord.download_count} download{historyRecord.download_count > 1 ? "s" : ""}
+                    </span>
+                  </div>
                 </div>
-              )}
-            </div>
+
+                {/* Download Timeline / Table */}
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100/70 dark:bg-slate-800/60 text-[11px] font-bold uppercase text-muted-foreground">
+                      <tr>
+                        <th className="px-3.5 py-2.5">#</th>
+                        <th className="px-3.5 py-2.5">Date & Time (IST)</th>
+                        <th className="px-3.5 py-2.5">Downloaded By</th>
+                        <th className="px-3.5 py-2.5 text-right">IP Address</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {(!historyRecord.download_history || historyRecord.download_history.length === 0) ? (
+                        <tr>
+                          <td colSpan={4} className="py-6 text-center text-muted-foreground">
+                            No download records found.
+                          </td>
+                        </tr>
+                      ) : (
+                        historyRecord.download_history.map((dl, idx) => (
+                          <tr key={dl.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                            <td className="px-3.5 py-2.5 font-bold">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
+                                idx === 0
+                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                                  : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                              }`}>
+                                #{dl.download_number} {idx === 0 ? "(Latest)" : ""}
+                              </span>
+                            </td>
+                            <td className="px-3.5 py-2.5 font-mono font-medium text-slate-900 dark:text-white">
+                              {dl.downloaded_at_fmt}
+                            </td>
+                            <td className="px-3.5 py-2.5">
+                              <span className={`inline-flex items-center gap-1 font-semibold text-[11px] ${
+                                dl.is_self ? "text-slate-700 dark:text-slate-300" : "text-purple-700 dark:text-purple-400 font-bold"
+                              }`}>
+                                {dl.downloaded_by_name}
+                              </span>
+                            </td>
+                            <td className="px-3.5 py-2.5 text-right font-mono text-[11px] text-muted-foreground">
+                              {dl.ip_address || "—"}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             <DialogFooter className="pt-2 border-t border-slate-100 dark:border-slate-800">
-              <Button variant="ghost" onClick={() => setVerifyModalOpen(false)} className="text-xs">
+              <Button variant="outline" size="sm" onClick={() => setHistoryRecord(null)} className="text-xs">
                 Close
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Test Download Certificate Modal */}
-        <Dialog open={testModalOpen} onOpenChange={setTestModalOpen}>
-          <DialogContent className="max-w-lg p-6 rounded-2xl">
-            <DialogHeader className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 bg-blue-100 text-blue-800 rounded-lg">
-                  <Award className="h-5 w-5 text-blue-600" />
-                </span>
-                <DialogTitle className="text-lg font-black">
-                  🧪 Test Certificate Download
-                </DialogTitle>
-              </div>
-              <DialogDescription className="text-xs">
-                Select any employee from the company directory or type custom test details to download or preview the official certificate immediately.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-3.5 my-2">
-              {/* Employee Selector */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
-                  Select Employee from Company:
-                </label>
-                {loadingEmployees ? (
-                  <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                    <span>Loading company employees...</span>
-                  </div>
-                ) : (
-                  <select
-                    value={selectedTestUid || ""}
-                    onChange={(e) => handleSelectTestEmployee(Number(e.target.value))}
-                    className="w-full h-10 px-3 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  >
-                    <option value="">-- Choose an Employee (or type custom below) --</option>
-                    {allEmployeesList.map((emp: any) => (
-                      <option key={emp.uid} value={emp.uid}>
-                        {emp.name} ({emp.emp_code}) - {emp.dept_name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              {/* Candidate Name Input */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
-                  Candidate Full Name:
-                </label>
-                <Input
-                  value={testName}
-                  onChange={(e) => setTestName(e.target.value)}
-                  placeholder="e.g. Ashis Kumar Rout"
-                  className="h-10 text-xs rounded-xl"
-                />
-              </div>
-
-              {/* Employee Code & Date */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
-                    Employee Code:
-                  </label>
-                  <Input
-                    value={testCode}
-                    onChange={(e) => setTestCode(e.target.value)}
-                    placeholder="e.g. HL198"
-                    className="h-10 text-xs font-mono rounded-xl"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
-                    Completion Date:
-                  </label>
-                  <Input
-                    value={testDateStr}
-                    onChange={(e) => setTestDateStr(e.target.value)}
-                    placeholder="e.g. November 23, 2026"
-                    className="h-10 text-xs rounded-xl"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <DialogFooter className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between sm:justify-between w-full">
-              <Button variant="ghost" onClick={() => setTestModalOpen(false)} className="text-xs">
-                Cancel
-              </Button>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handlePreviewTestCert}
-                  disabled={!testName.trim() || isTestingDownload}
-                  className="text-xs font-bold gap-1.5"
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  <span>Preview</span>
-                </Button>
-                <Button
-                  onClick={handleDownloadTestCert}
-                  disabled={!testName.trim() || isTestingDownload}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold gap-1.5"
-                >
-                  {isTestingDownload ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Download className="h-3.5 w-3.5" />
-                  )}
-                  <span>Download Test PDF</span>
-                </Button>
-              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>

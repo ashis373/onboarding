@@ -156,6 +156,18 @@ if ($ovrChk && $ovrChk->num_rows > 0) {
 }
 
 // 4. Calculate Final Lockout & Retake Eligibility
+$allowCertDownload = false;
+if (file_exists(__DIR__ . '/../certificate_helper.php')) {
+    require_once __DIR__ . '/../certificate_helper.php';
+    if (isset($conn) && $conn instanceof mysqli && function_exists('isEmployeeCertificateDownloadAllowed')) {
+        try {
+            $allowCertDownload = isEmployeeCertificateDownloadAllowed($conn);
+        } catch (\Throwable $e) {
+            $allowCertDownload = false;
+        }
+    }
+}
+
 $totalAttempts = count($attemptsList);
 $maxAttempts = 2;
 $isLocked = false;
@@ -226,6 +238,7 @@ echo json_encode([
     'passing_score' => $passingScoreThreshold,
     'latest_score' => $latestScore,
     'is_passed' => $isPassedOverall,
+    'allow_employee_certificate_download' => $allowCertDownload,
     'is_locked' => $isLocked,
     'can_retake' => $canRetake,
     'admin_unlocked' => $hasAdminOverride,

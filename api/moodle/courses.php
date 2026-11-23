@@ -26,6 +26,12 @@ if (strpos($reqUri, '/internal/corhis/onboard') !== false) {
 
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/sync_user.php';
+if (file_exists(__DIR__ . '/../deadline_helper.php')) {
+    require_once __DIR__ . '/../deadline_helper.php';
+}
+if (file_exists(__DIR__ . '/../certificate_helper.php')) {
+    require_once __DIR__ . '/../certificate_helper.php';
+}
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -307,6 +313,21 @@ $serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $
                     }
                 } catch (\Throwable $e) {
                     error_log("Notice: Error in live attempts injection: " . $e->getMessage());
+                }
+            }
+
+            // Dynamically inject live deadline, certificate download flag, and lockout status into cached response
+            if ($user_id > 0 && isset($conn) && $conn instanceof mysqli) {
+                try {
+                    if (function_exists('getEmployeeDeadlineStatus')) {
+                        $decodedCached['deadline_info'] = getEmployeeDeadlineStatus((int)$user_id, $conn);
+                    }
+                    if (function_exists('isEmployeeCertificateDownloadAllowed')) {
+                        $decodedCached['allow_employee_certificate_download'] = isEmployeeCertificateDownloadAllowed($conn);
+                    }
+                    $cachedPayload = json_encode($decodedCached, JSON_UNESCAPED_SLASHES);
+                } catch (\Throwable $e) {
+                    error_log("Notice: Error in live deadline injection: " . $e->getMessage());
                 }
             }
 
@@ -2175,6 +2196,24 @@ $usageScenario = !empty($_GET['refresh_all'])
             : (!empty($_GET['sync_progress']) ? 'sync_progress' : 'cold_load')));
 flushMoodleApiUsage($conn, $usageScenario, $user_id, $moodleUserId);
 
+$deadlineInfo = null;
+if (isset($conn) && $conn instanceof mysqli) {
+    try {
+        $deadlineInfo = getEmployeeDeadlineStatus((int)$user_id, $conn);
+    } catch (\Throwable $e) {
+        error_log("Notice: Error in deadline evaluation: " . $e->getMessage());
+    }
+}
+
+$allowCertDownload = false;
+if (isset($conn) && $conn instanceof mysqli && function_exists('isEmployeeCertificateDownloadAllowed')) {
+    try {
+        $allowCertDownload = isEmployeeCertificateDownloadAllowed($conn);
+    } catch (\Throwable $e) {
+        $allowCertDownload = false;
+    }
+}
+
 // Explicitly close the local database connection now that all reads and writes are complete
 if (isset($conn) && $conn instanceof mysqli) {
     @$conn->close();
@@ -2184,6 +2223,8 @@ $responsePayload = json_encode([
     'success' => true,
     'linked' => true,
     'access_expired' => $isExpired,
+    'deadline_info' => $deadlineInfo,
+    'allow_employee_certificate_download' => $allowCertDownload,
     'days_elapsed' => $daysElapsed,
     'days_remaining' => max(0, 7 - $daysElapsed),
     'sequential_locking' => $seqLocking,

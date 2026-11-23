@@ -54,8 +54,12 @@ import {
   PauseCircle,
   Pause,
   Box,
-  StepForward
+  StepForward,
+  Award,
+  Download,
+  Loader2
 } from "lucide-react";
+import { downloadCertificatePdf } from "@/lib/certificateGenerator";
 import { useAuth } from "@/hooks/useAuth";
 import { apiGet, apiPost, API_BASE } from "@/lib/api";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -244,6 +248,11 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
     return null;
   }, [moodleData]);
 
+  // Real-time Onboarding Deadline & Access Lockout Status
+  const deadlineInfo = (moodleData as any)?.deadline_info;
+  const isCertified = Boolean(deadlineInfo?.has_passed || deadlineInfo?.is_completed || assessmentHistoryData?.is_passed);
+  const isDeadlineLocked = Boolean(!isCertified && deadlineInfo?.is_deadline_locked);
+
   const tabParam = forcedTab || searchParams.get('tab');
   const getInitialTab = (): 'roadmap' | 'scorm_report' | 'attempt_history' | 'all' => {
     if (forcedTab) return forcedTab;
@@ -280,6 +289,37 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
       navigate('/modules');
     } else if (newTab === 'attempt_history') {
       navigate('/attempt-history');
+    }
+  };
+
+  const [downloadingEmployeeCert, setDownloadingEmployeeCert] = useState(false);
+
+  const handleDownloadEmployeeCertificate = async () => {
+    const candidateName = [user?.firstname, user?.lastname].filter(Boolean).join(" ").trim() || moodleData?.employee?.name || "HexaLearn Employee";
+    const candidateCode = user?.emp_code || (user?.uid ? `HL${user.uid}` : (moodleData?.employee?.uid ? `HL${moodleData.employee.uid}` : "HL000"));
+    const candidateUid = Number(user?.uid || moodleData?.employee?.uid || 0);
+
+    setDownloadingEmployeeCert(true);
+    try {
+      const passedDate = latestAttempt?.date || deadlineInfo?.effective_deadline_fmt || "November 20, 2026";
+      await downloadCertificatePdf({
+        name: candidateName,
+        empCode: candidateCode,
+        dateStr: passedDate,
+        userId: candidateUid,
+      });
+      toast({
+        title: "Certificate Downloaded",
+        description: "Your official Induction Completion Certificate has been generated.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Download Failed",
+        description: err?.message || "Failed to download certificate.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingEmployeeCert(false);
     }
   };
 
@@ -398,6 +438,14 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
 
   const handleLaunchModule = (item: any) => {
     if (!item || item.status === 'locked' || item.is_locked) return;
+    if (isDeadlineLocked) {
+      toast({
+        title: "Onboarding Access Locked",
+        description: `Your onboarding completion deadline of ${deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Please contact your manager or HR for an extension.`,
+        variant: "destructive",
+      });
+      return;
+    }
     if (item.status === 'completed' && !item.admin_unlocked) {
       toast({
         title: "Course Completed & Locked",
@@ -414,6 +462,14 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
 
   const handleRetakeModule = (item: any) => {
     if (!item) return;
+    if (isDeadlineLocked) {
+      toast({
+        title: "Onboarding Access Locked",
+        description: `Your onboarding completion deadline of ${deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Please contact your manager or HR for an extension.`,
+        variant: "destructive",
+      });
+      return;
+    }
     const retakeUrl = item.retake_url || `${item.url}&newattempt=on`;
     openPlayer(retakeUrl, `${item.title || item.name || 'Assessment'} (Retake)`, { ...item, newattempt: 'on' });
   };
@@ -1407,8 +1463,32 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
           </div>
         )}
         {/* =========================================================================
-            TOP HEADER (FOR NON-OVERVIEW TABS: MODULES, REPORTS, ATTEMPT HISTORY)
+            ONBOARDING DEADLINE EXPIRED & ACCESS LOCKOUT BANNER
            ========================================================================= */}
+        {isDeadlineLocked && (
+          <div className="rounded-2xl border-2 border-red-500/80 bg-gradient-to-r from-red-500/15 via-red-500/10 to-red-500/15 p-5 sm:p-6 shadow-md backdrop-blur-xs relative overflow-hidden">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
+              <div className="flex items-start gap-4">
+                <div className="h-12 w-12 rounded-2xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <Lock className="h-6 w-6" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h3 className="text-base sm:text-lg font-black text-red-950 tracking-tight">
+                      Onboarding Completion Deadline Expired
+                    </h3>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-200/90 text-red-900 border border-red-300">
+                      Access Locked
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-red-900/90 leading-relaxed font-medium max-w-3xl">
+                    Your scheduled onboarding completion cutoff of <strong>{deadlineInfo?.effective_deadline_fmt || 'the cutoff date'}</strong> has expired. Module launching and final induction assessment attempts are currently locked. If you need an extension, please contact your <strong>Reporting Manager</strong> or <strong>HR Department</strong>.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {activeTab !== 'all' && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
             <div className="flex items-center gap-3.5">
@@ -1911,6 +1991,20 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                       )}
 
                       <div className="flex items-center justify-center sm:justify-start gap-2.5 pt-0.5 flex-wrap">
+                        {Boolean(moodleData?.allow_employee_certificate_download && isPassed) && (
+                          <button
+                            onClick={handleDownloadEmployeeCertificate}
+                            disabled={downloadingEmployeeCert}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {downloadingEmployeeCert ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Award className="h-3.5 w-3.5" />
+                            )}
+                            <span>Download Certificate</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => handleTabChange('attempt_history')}
                           className="px-4 py-2 rounded-xl border border-sky-300 hover:bg-sky-50 text-sky-700 text-xs font-bold transition-all shadow-2xs inline-flex items-center gap-1.5 cursor-pointer hover:shadow-xs"
@@ -2481,25 +2575,45 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                   <div className="space-y-4">
                     {/* 1. Celebratory Success Banner when Passed */}
                     {isOverallPassed && (
-                      <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/5 border border-emerald-300 rounded-2xl p-5 shadow-2xs flex items-start sm:items-center gap-4">
-                        <div className="h-11 w-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                          <Trophy className="h-6 w-6" />
-                        </div>
-                        <div className="flex-1 space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="text-sm sm:text-base font-black text-emerald-950 tracking-tight">
-                              🎉 Congratulations! You have successfully completed the Assessment!
-                            </h3>
-                            {latestPassedScore !== null && latestPassedScore !== undefined && (
-                              <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full">
-                                Score: {latestPassedScore}%
-                              </span>
-                            )}
+                      <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/5 border border-emerald-300 rounded-2xl p-5 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="flex items-start sm:items-center gap-4 flex-1">
+                          <div className="h-11 w-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                            <Trophy className="h-6 w-6" />
                           </div>
-                          <p className="text-xs text-emerald-800/90 font-medium">
-                            You have passed the final induction assessment and successfully met all onboarding requirements. Your completion is permanently certified.
-                          </p>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="text-sm sm:text-base font-black text-emerald-950 tracking-tight">
+                                🎉 Congratulations! You have successfully completed the Assessment!
+                              </h3>
+                              {latestPassedScore !== null && latestPassedScore !== undefined && (
+                                <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full">
+                                  Score: {latestPassedScore}%
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-emerald-800/90 font-medium">
+                              You have passed the final induction assessment and successfully met all onboarding requirements. Your completion is permanently certified.
+                            </p>
+                          </div>
                         </div>
+
+                        {/* Download Certificate Button: Shows ONLY if Passed and Admin has turned ON the master switch (0 extra API calls) */}
+                        {Boolean(moodleData?.allow_employee_certificate_download && isOverallPassed) && (
+                          <div className="shrink-0 self-stretch sm:self-center">
+                            <button
+                              onClick={handleDownloadEmployeeCertificate}
+                              disabled={downloadingEmployeeCert}
+                              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold transition-all shadow-xs inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 hover:shadow-sm"
+                            >
+                              {downloadingEmployeeCert ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Award className="h-4 w-4" />
+                              )}
+                              <span>Download Certificate (PDF)</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2552,7 +2666,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                               displayedAttempts.map((row: any, idx: number) => {
                                 const isPassed = row.is_passed || row.result === 'Passed';
                                 const isFailed = row.is_failed || row.result === 'Failed';
-                                
+
                                 // Indian Time formatting for attempted_at
                                 let displayDateTime = row.date || '—';
                                 if (row.attempted_at) {

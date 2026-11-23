@@ -482,6 +482,15 @@ if ($res) {
                     return date('d-M-Y h:i A', strtotime($raw . ' UTC'));
                 }
             })($row['attempted_at']),
+            'passed_date_fmt' => ($row['result'] === 'Passed' && !empty($row['attempted_at'])) ? (function($raw) {
+                try {
+                    $dt = new DateTime($raw, new DateTimeZone('UTC'));
+                    $dt->setTimezone(new DateTimeZone('Asia/Kolkata'));
+                    return $dt->format('F j, Y');
+                } catch (\Throwable $e) {
+                    return date('F j, Y', strtotime($raw));
+                }
+            })($row['attempted_at']) : null,
             'photo' => !empty($row['profile_img']) ? '/internal/corhis/dist/img/user/' . $row['profile_img'] : ''
         ];
     }

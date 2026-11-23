@@ -18,6 +18,7 @@ import {
   LayoutGrid,
   Mail,
   Activity,
+  Award,
   ArrowLeft
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -91,6 +92,7 @@ export const Layout = ({
     { id: "admin_tracking", icon: Users, label: "Employee Tracking", path: "/admin/employees" },
     { id: "admin_assessments", icon: ClipboardCheck, label: "Assessment Results", path: "/admin/assessments" },
     { id: "admin_reports", icon: FileText, label: "Reports", path: "/admin/reports" },
+    { id: "admin_certificates", icon: Award, label: "Certificate Downloads", path: "/admin/certificates" },
     { id: "admin_emails", icon: Mail, label: "Email Settings", path: "/admin/emails" },
     { id: "admin_settings", icon: Settings, label: "Settings", path: "/admin/settings" },
     { id: "admin_api_usage", icon: Activity, label: "API Usage", path: "/admin/api-usage" },

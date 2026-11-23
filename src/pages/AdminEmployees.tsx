@@ -17,15 +17,20 @@ import {
   Search,
   Loader2,
   Unlock,
+  Lock,
+  Clock,
   Building2,
   Percent,
   Filter,
   RotateCcw,
+  Award,
   X
 } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { AdminCourseAccessModal } from "@/components/AdminCourseAccessModal";
+import { AdminExtendDeadlineModal } from "@/components/AdminExtendDeadlineModal";
+import { downloadCertificatePdf } from "@/lib/certificateGenerator";
 
 interface AdminEmployeesResponse {
   success: boolean;
@@ -160,6 +165,7 @@ const AdminEmployees = () => {
 
   // Modal and View Mode States
   const [accessModalEmployee, setAccessModalEmployee] = useState<any | null>(null);
+  const [deadlineModalEmployee, setDeadlineModalEmployee] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>(() => {
     const saved = localStorage.getItem('admin_employee_view_mode_v2');
     if (saved === 'grid' || saved === 'table') return saved;
@@ -340,11 +346,10 @@ const AdminEmployees = () => {
             <button
               type="button"
               onClick={() => handleFilterCardClick('all')}
-              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${
-                filterTab === 'all'
-                  ? 'border-slate-800 bg-white ring-2 ring-slate-800/20'
-                  : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
-              }`}
+              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'all'
+                ? 'border-slate-800 bg-white ring-2 ring-slate-800/20'
+                : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
+                }`}
               title="Show all company roster"
             >
               <div className="flex items-center justify-between">
@@ -368,11 +373,10 @@ const AdminEmployees = () => {
             <button
               type="button"
               onClick={() => handleFilterCardClick('enrolled')}
-              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${
-                filterTab === 'enrolled'
-                  ? 'border-[#00A389] bg-white ring-2 ring-[#00A389]/25 shadow-xs'
-                  : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
-              }`}
+              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'enrolled'
+                ? 'border-[#00A389] bg-white ring-2 ring-[#00A389]/25 shadow-xs'
+                : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
+                }`}
               title="Active Moodle LMS Onboarding Employees"
             >
               <div className="flex items-center justify-between">
@@ -397,11 +401,10 @@ const AdminEmployees = () => {
             <button
               type="button"
               onClick={() => handleFilterCardClick('completed')}
-              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${
-                filterTab === 'completed'
-                  ? 'border-emerald-600 bg-white ring-2 ring-emerald-600/25'
-                  : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
-              }`}
+              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'completed'
+                ? 'border-emerald-600 bg-white ring-2 ring-emerald-600/25'
+                : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
+                }`}
               title="Employees who finished 100% of courses"
             >
               <div className="flex items-center justify-between">
@@ -423,11 +426,10 @@ const AdminEmployees = () => {
             <button
               type="button"
               onClick={() => handleFilterCardClick('not_enrolled')}
-              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${
-                filterTab === 'not_enrolled'
-                  ? 'border-amber-600 bg-white ring-2 ring-amber-600/25'
-                  : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
-              }`}
+              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'not_enrolled'
+                ? 'border-amber-600 bg-white ring-2 ring-amber-600/25'
+                : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
+                }`}
               title="Staff not yet enrolled in Moodle Onboarding"
             >
               <div className="flex items-center justify-between">
@@ -869,11 +871,10 @@ const AdminEmployees = () => {
                           setEmpType('current');
                           setPage(1);
                         }}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                          empType === 'current'
-                            ? 'bg-white text-emerald-800 shadow-2xs'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${empType === 'current'
+                          ? 'bg-white text-emerald-800 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                          }`}
                       >
                         <span className={`h-2 w-2 rounded-full ${empType === 'current' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                         <span>Current</span>
@@ -884,11 +885,10 @@ const AdminEmployees = () => {
                           setEmpType('ex');
                           setPage(1);
                         }}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                          empType === 'ex'
-                            ? 'bg-white text-amber-800 shadow-2xs'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${empType === 'ex'
+                          ? 'bg-white text-amber-800 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                          }`}
                       >
                         <span className={`h-2 w-2 rounded-full ${empType === 'ex' ? 'bg-amber-500' : 'bg-slate-300'}`} />
                         <span>Ex-Staff</span>
@@ -906,11 +906,10 @@ const AdminEmployees = () => {
                     <button
                       type="button"
                       onClick={() => handleViewModeChange('table')}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        viewMode === 'table'
-                          ? 'bg-white text-[#00A389] shadow-2xs'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${viewMode === 'table'
+                        ? 'bg-white text-[#00A389] shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                        }`}
                     >
                       <List className="h-3.5 w-3.5" />
                       <span>Table</span>
@@ -918,11 +917,10 @@ const AdminEmployees = () => {
                     <button
                       type="button"
                       onClick={() => handleViewModeChange('grid')}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        viewMode === 'grid'
-                          ? 'bg-white text-[#00A389] shadow-2xs'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${viewMode === 'grid'
+                        ? 'bg-white text-[#00A389] shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                        }`}
                     >
                       <LayoutGrid className="h-3.5 w-3.5" />
                       <span>Grid</span>
@@ -940,6 +938,10 @@ const AdminEmployees = () => {
                     const percent = totalMod > 0 ? Math.min(100, Math.round((completedMod / totalMod) * 100)) : (r.progress?.percent || 0);
                     const isCompleted = percent === 100;
                     const isInProgress = (percent > 0 && percent < 100) || (r.is_moodle_enrolled && r.progress?.status === 'In Progress');
+                    const dlInfo = r.deadline_info;
+                    const isTraineeCertified = Boolean(dlInfo?.has_passed || dlInfo?.is_completed || isCompleted);
+                    const isTraineeLocked = Boolean(!isTraineeCertified && dlInfo?.is_deadline_locked);
+                    const isTraineeExtended = Boolean(!isTraineeCertified && dlInfo?.is_extended);
 
                     return (
                       <div
@@ -981,23 +983,30 @@ const AdminEmployees = () => {
                             </div>
 
                             <span
-                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${
-                                !r.is_moodle_enrolled
-                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                  : isCompleted
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : isInProgress
-                                      ? 'bg-[#E6F7F4] text-[#00A389] border-[#00A389]/30'
-                                      : 'bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${!r.is_moodle_enrolled
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : isTraineeCertified
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : isTraineeLocked
+                                    ? 'bg-red-50 text-red-700 border-red-200'
+                                    : isTraineeExtended
+                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                      : isInProgress
+                                        ? 'bg-[#E6F7F4] text-[#00A389] border-[#00A389]/30'
+                                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                                }`}
                             >
                               {!r.is_moodle_enrolled
                                 ? 'Not Enrolled'
-                                : isCompleted
-                                  ? '✓ Completed'
-                                  : isInProgress
-                                    ? 'In Progress'
-                                    : 'Not Started'}
+                                : isTraineeCertified
+                                  ? '✓ Certified'
+                                  : isTraineeLocked
+                                    ? '🔒 Locked'
+                                    : isTraineeExtended
+                                      ? '⏱ Extended'
+                                      : isInProgress
+                                        ? 'In Progress'
+                                        : 'Not Started'}
                             </span>
                           </div>
 
@@ -1053,9 +1062,8 @@ const AdminEmployees = () => {
                               {/* Progress bar line */}
                               <div className="h-1.5 w-full bg-slate-200/80 rounded-full overflow-hidden">
                                 <div
-                                  className={`h-full rounded-full transition-all duration-500 ${
-                                    isCompleted ? 'bg-[#00A389]' : percent > 0 ? 'bg-[#00A389]' : 'bg-slate-300'
-                                  }`}
+                                  className={`h-full rounded-full transition-all duration-500 ${isCompleted ? 'bg-[#00A389]' : percent > 0 ? 'bg-[#00A389]' : 'bg-slate-300'
+                                    }`}
                                   style={{ width: `${percent}%` }}
                                 />
                               </div>
@@ -1081,6 +1089,19 @@ const AdminEmployees = () => {
                               >
                                 <Unlock className="h-3 w-3 text-amber-600" />
                                 <span>Access</span>
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setDeadlineModalEmployee(r)}
+                                className={`h-8 px-2.5 rounded-xl border text-xs font-bold gap-1 cursor-pointer shadow-2xs transition-all ${isTraineeLocked
+                                  ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
+                                  : 'border-blue-200 text-blue-700 bg-blue-50/60 hover:bg-blue-100'
+                                  }`}
+                                title="Extend Onboarding Deadline"
+                              >
+                                <Calendar className="h-3 w-3 text-blue-600" />
+                                <span>Extend</span>
                               </Button>
                               <Button
                                 variant="outline"
@@ -1124,6 +1145,10 @@ const AdminEmployees = () => {
                           const percent = totalMod > 0 ? Math.min(100, Math.round((completedMod / totalMod) * 100)) : (r.progress?.percent || 0);
                           const isCompleted = percent === 100;
                           const isInProgress = (percent > 0 && percent < 100) || (r.is_moodle_enrolled && r.progress?.status === 'In Progress');
+                          const dlInfo = r.deadline_info;
+                          const isTraineeCertified = Boolean(dlInfo?.has_passed || dlInfo?.is_completed || isCompleted);
+                          const isTraineeLocked = Boolean(!isTraineeCertified && dlInfo?.is_deadline_locked);
+                          const isTraineeExtended = Boolean(!isTraineeCertified && dlInfo?.is_extended);
 
                           return (
                             <tr
@@ -1206,9 +1231,8 @@ const AdminEmployees = () => {
                                     <div className="flex items-center justify-between gap-2">
                                       <div className="h-2 flex-1 bg-slate-100 rounded-full overflow-hidden">
                                         <div
-                                          className={`h-full rounded-full transition-all duration-500 ${
-                                            isCompleted ? 'bg-[#00A389]' : percent > 0 ? 'bg-[#00A389]' : 'bg-slate-200'
-                                          }`}
+                                          className={`h-full rounded-full transition-all duration-500 ${isCompleted ? 'bg-[#00A389]' : percent > 0 ? 'bg-[#00A389]' : 'bg-slate-200'
+                                            }`}
                                           style={{ width: `${percent}%` }}
                                         />
                                       </div>
@@ -1230,36 +1254,57 @@ const AdminEmployees = () => {
 
                               {/* Status Column */}
                               <td className="py-4 px-4 whitespace-nowrap">
-                                <span
-                                  className={`text-[10px] font-bold px-2.5 py-1 rounded-full border inline-flex items-center gap-1 ${
-                                    !r.is_moodle_enrolled
+                                <div className="flex flex-col gap-1 items-start">
+                                  <span
+                                    className={`text-[10px] font-bold px-2.5 py-1 rounded-full border inline-flex items-center gap-1 ${!r.is_moodle_enrolled
                                       ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                      : isCompleted
+                                      : isTraineeCertified
                                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        : isInProgress
-                                          ? 'bg-[#E6F7F4] text-[#00A389] border-[#00A389]/30'
-                                          : 'bg-slate-100 text-slate-600 border-slate-200'
-                                  }`}
-                                >
-                                  {!r.is_moodle_enrolled ? (
-                                    <>
-                                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                                      <span>Not Enrolled</span>
-                                    </>
-                                  ) : isCompleted ? (
-                                    <>
-                                      <CheckCircle2 className="h-3 w-3 text-[#00A389]" />
-                                      <span>Completed</span>
-                                    </>
-                                  ) : isInProgress ? (
-                                    <>
-                                      <span className="h-1.5 w-1.5 rounded-full bg-[#00A389] animate-pulse" />
-                                      <span>In Progress</span>
-                                    </>
-                                  ) : (
-                                    <span>Not Started</span>
+                                        : isTraineeLocked
+                                          ? 'bg-red-50 text-red-700 border-red-200'
+                                          : isTraineeExtended
+                                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                            : isInProgress
+                                              ? 'bg-[#E6F7F4] text-[#00A389] border-[#00A389]/30'
+                                              : 'bg-slate-100 text-slate-600 border-slate-200'
+                                      }`}
+                                  >
+                                    {!r.is_moodle_enrolled ? (
+                                      <>
+                                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                        <span>Not Enrolled</span>
+                                      </>
+                                    ) : isTraineeCertified ? (
+                                      <>
+                                        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                        <span>Certified</span>
+                                      </>
+                                    ) : isTraineeLocked ? (
+                                      <>
+                                        <Lock className="h-3 w-3 text-red-600" />
+                                        <span>Locked</span>
+                                      </>
+                                    ) : isTraineeExtended ? (
+                                      <>
+                                        <Clock className="h-3 w-3 text-blue-600" />
+                                        <span>Extended</span>
+                                      </>
+                                    ) : isInProgress ? (
+                                      <>
+                                        <span className="h-1.5 w-1.5 rounded-full bg-[#00A389] animate-pulse" />
+                                        <span>In Progress</span>
+                                      </>
+                                    ) : (
+                                      <span>Not Started</span>
+                                    )}
+                                  </span>
+                                  {dlInfo && !isTraineeCertified && (
+                                    <span className="text-[10px] text-slate-400 font-mono pl-0.5">
+                                      {isTraineeLocked ? 'Expired: ' : 'Deadline: '}
+                                      {dlInfo.effective_deadline_fmt ? dlInfo.effective_deadline_fmt.split(' ')[0] : '24-Nov-2026'}
+                                    </span>
                                   )}
-                                </span>
+                                </div>
                               </td>
 
                               {/* Action: Enrolled trainees only */}
@@ -1275,6 +1320,19 @@ const AdminEmployees = () => {
                                     >
                                       <Unlock className="h-3 w-3 text-amber-600" />
                                       <span>Access</span>
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setDeadlineModalEmployee(r)}
+                                      className={`h-8 px-2.5 rounded-xl border text-xs font-bold gap-1.5 cursor-pointer shadow-2xs transition-all ${isTraineeLocked
+                                        ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
+                                        : 'border-blue-200 text-blue-700 bg-blue-50/60 hover:bg-blue-100'
+                                        }`}
+                                      title="Extend Onboarding Deadline"
+                                    >
+                                      <Calendar className="h-3 w-3 text-blue-600" />
+                                      <span>Extend</span>
                                     </Button>
                                     <Button
                                       variant="outline"
@@ -1338,11 +1396,10 @@ const AdminEmployees = () => {
                                 key={pageNum}
                                 disabled={isFetching}
                                 onClick={() => setPage(pageNum)}
-                                className={`h-8 w-8 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                  pageNum === pagination.page
-                                    ? 'bg-[#00A389] text-white shadow-2xs'
-                                    : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200'
-                                }`}
+                                className={`h-8 w-8 rounded-lg text-xs font-bold transition-all cursor-pointer ${pageNum === pagination.page
+                                  ? 'bg-[#00A389] text-white shadow-2xs'
+                                  : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200'
+                                  }`}
                               >
                                 {pageNum}
                               </button>
@@ -1386,6 +1443,13 @@ const AdminEmployees = () => {
         onClose={() => setAccessModalEmployee(null)}
         employeeUid={accessModalEmployee?.uid}
         employeeName={accessModalEmployee?.name}
+        onUpdated={() => refetch()}
+      />
+
+      <AdminExtendDeadlineModal
+        isOpen={Boolean(deadlineModalEmployee)}
+        onClose={() => setDeadlineModalEmployee(null)}
+        employee={deadlineModalEmployee}
         onUpdated={() => refetch()}
       />
     </Layout>

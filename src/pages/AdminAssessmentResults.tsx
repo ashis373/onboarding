@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api";
+import { downloadCertificatePdf } from "@/lib/certificateGenerator";
 import { useToast } from "@/components/ui/use-toast";
 import {
   ClipboardCheck,
@@ -116,6 +117,32 @@ export default function AdminAssessmentResults() {
   const [page, setPage] = useState(1);
   const [unlockTarget, setUnlockTarget] = useState<AssessmentAttempt | null>(null);
   const [unlocking, setUnlocking] = useState(false);
+  const [downloadingCertId, setDownloadingCertId] = useState<number | null>(null);
+
+  const handleDownloadAttemptCert = async (att: AssessmentAttempt) => {
+    setDownloadingCertId(att.id);
+    try {
+      await downloadCertificatePdf({
+        name: att.emp_name || 'Employee',
+        empCode: att.emp_code && att.emp_code !== '—' ? att.emp_code : `HL${att.user_id}`,
+        dateStr: (att as any).passed_date_fmt || att.attempted_at,
+        userId: att.user_id,
+      });
+      toast({
+        title: "Certificate Generated",
+        description: `Official certificate for ${att.emp_name} downloaded successfully.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["admin_assessment_results"] });
+    } catch (err: any) {
+      toast({
+        title: "Certificate Download Failed",
+        description: err?.message || "Could not generate certificate.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingCertId(null);
+    }
+  };
 
   // Email Settings Modal State
   const [emailModalOpen, setEmailModalOpen] = useState(false);
@@ -633,21 +660,46 @@ export default function AdminAssessmentResults() {
                           {formatDateTimeIST(att.attempted_at, att.attempted_at_fmt)}
                         </td>
 
-                        {/* Action: Unlock */}
+                        {/* Action: Certificate & Unlock */}
                         <td className="px-4 py-3 text-right">
-                          {isLockedOut ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setUnlockTarget(att)}
-                              className="h-7 text-xs font-semibold text-rose-700 border-rose-300 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950"
-                            >
-                              <Unlock className="w-3 h-3 mr-1" />
-                              Unlock
-                            </Button>
-                          ) : (
-                            <span className="text-muted-foreground text-[11px]">—</span>
-                          )}
+                          <div className="flex items-center justify-end gap-1.5">
+                            {att.result === 'Passed' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={downloadingCertId === att.id}
+                                onClick={() => handleDownloadAttemptCert(att)}
+                                className="h-7 px-2 text-xs font-bold text-emerald-800 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-400 gap-1 cursor-pointer shadow-2xs"
+                                title={(att as any).certificate_info?.download_count ? `Downloaded ${(att as any).certificate_info.download_count} time(s). Last: ${(att as any).certificate_info.last_downloaded_at_fmt || 'Recently'}` : "Download Official Certificate PDF"}
+                              >
+                                {downloadingCertId === att.id ? (
+                                  <RefreshCw className="w-3 h-3 animate-spin text-emerald-600" />
+                                ) : (
+                                  <Award className="w-3 h-3 text-emerald-600" />
+                                )}
+                                <span>Certificate</span>
+                                {Boolean((att as any).certificate_info?.download_count) && (
+                                  <span className="text-[10px] bg-emerald-200/90 text-emerald-900 font-black px-1.5 py-0.2 rounded-full">
+                                    {(att as any).certificate_info.download_count}x
+                                  </span>
+                                )}
+                              </Button>
+                            )}
+                            {isLockedOut && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setUnlockTarget(att)}
+                                className="h-7 text-xs font-semibold text-rose-700 border-rose-300 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950"
+                              >
+                                <Unlock className="w-3 h-3 mr-1" />
+                                Unlock
+                              </Button>
+                            )}
+                            {att.result !== 'Passed' && !isLockedOut && (
+                              <span className="text-muted-foreground text-[11px]">—</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

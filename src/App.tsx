@@ -32,6 +32,7 @@ const AdminEmployeeReport = lazy(() => import("./pages/AdminEmployeeReport"));
 const AdminEmails = lazy(() => import("./pages/AdminEmails"));
 const AdminApiUsage = lazy(() => import("./pages/AdminApiUsage"));
 const AdminAssessmentResults = lazy(() => import("./pages/AdminAssessmentResults"));
+const AdminCertificates = lazy(() => import("./pages/AdminCertificates"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -187,6 +188,18 @@ const App = () => (
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/admin/certificates"
+            element={
+              <ProtectedRoute>
+                <AdminGate>
+                  <AdminCertificates />
+                </AdminGate>
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/admin/certificate-downloads" element={<Navigate to="/admin/certificates" replace />} />
+          <Route path="/admin/certificate-history" element={<Navigate to="/admin/certificates" replace />} />
           <Route
             path="/admin/emails"
             element={

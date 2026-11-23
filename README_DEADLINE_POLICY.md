@@ -41,13 +41,21 @@ This document defines the architecture, rules, database schema, API specificatio
 
 ---
 
-### Batch 2: New Employees (Joined on or after Nov 25, 2026)
-* **Eligibility:** Users with `onboard_moodle_users.created_at >= '2026-11-25 00:00:00'` (or first portal launch date).
-* **Policy:** Exactly **7 Official Working Days**.
-* **Calendar Exclusions:**
-  1. ❌ **Sundays:** Every Sunday is excluded.
-  2. ❌ **2nd & 3rd Saturdays:** The 2nd and 3rd Saturday of any Gregorian calendar month are company off-days and excluded.
-  3. ❌ **Company Holidays:** Any date present in the `holiday_info` table is excluded.
+### Batch 2: New Employees (Perpetual Rule: 2026, 2027, 2028, 2029, 2030+)
+* **Eligibility:** Any new joiner registered on or after November 25, 2026 (`onboard_moodle_users.created_at >= '2026-11-25 00:00:00'`).
+* **Policy:** Exactly **7 Official Working Days** dynamically calculated from their joining/portal entry date.
+* **Perpetual 5 to 10+ Year Automated Engine (Zero Hardcoded Years):**
+  This rule is 100% dynamic and runs perpetually across all future years (**2026, 2027, 2028, 2029, 2030, 2035+**) without needing code updates.
+* **Calendar Exclusions & Working Saturdays Breakdown:**
+  1. ❌ **Sundays:** Every Sunday (`date('N') == 7`) is excluded (Company Off-day).
+  2. ❌ **2nd & 3rd Saturdays:** Dynamically calculated for ANY month of ANY year:
+     - **Mathematical Calendar Law (Valid for all years 2026–2040+):**
+       - **1st Saturday:** Always falls on **Days 1 to 7** of the month $\rightarrow$ **Office Working Day** (Counted).
+       - **2nd Saturday:** Always falls on **Days 8 to 14** of the month $\rightarrow$ **OFF / Excluded**.
+       - **3rd Saturday:** Always falls on **Days 15 to 21** of the month $\rightarrow$ **OFF / Excluded**.
+       - **4th Saturday:** Always falls on **Days 22 to 28** of the month $\rightarrow$ **Office Working Day** (Counted).
+       - **5th Saturday:** Always falls on **Days 29 to 31** (when present) $\rightarrow$ **Office Working Day** (Counted).
+  3. ❌ **Company Holidays:** Queried in real-time from the `holiday_info` table for whatever year the employee joins.
 * **Calculation:** The start day counts as Day 1 if it is an official working day. The deadline is set to **23:59:59 IST of the 7th working day**.
 
 ---
@@ -127,18 +135,21 @@ date_default_timezone_set('Asia/Kolkata');
 
 /**
  * Checks if a given date is the 2nd or 3rd Saturday of its month.
+ * Uses exact Gregorian calendar math (never assumes dates):
+ * - 1st Saturday: Days 1 to 7   -> Working Day
+ * - 2nd Saturday: Days 8 to 14  -> OFF (Company Holiday)
+ * - 3rd Saturday: Days 15 to 21 -> OFF (Company Holiday)
+ * - 4th Saturday: Days 22 to 28 -> Working Day
+ * - 5th Saturday: Days 29 to 31 -> Working Day
  */
 function isSecondOrThirdSaturday(DateTime $date): bool {
-    if ((int)$date->format('N') !== 6) { // 6 = Saturday
+    // 6 = Saturday in ISO-8601 (1=Mon ... 7=Sun)
+    if ((int)$date->format('N') !== 6) {
         return false;
     }
-    $yearMonth = $date->format('Y-m');
-    $secondSat = new DateTime("second saturday of {$yearMonth}");
-    $thirdSat  = new DateTime("third saturday of {$yearMonth}");
-    
-    $currentDateStr = $date->format('Y-m-d');
-    return ($currentDateStr === $secondSat->format('Y-m-d') || 
-            $currentDateStr === $thirdSat->format('Y-m-d'));
+    $dayOfMonth = (int)$date->format('j');
+    // Day 8-14 is guaranteed 2nd Saturday, Day 15-21 is guaranteed 3rd Saturday
+    return ($dayOfMonth >= 8 && $dayOfMonth <= 21);
 }
 
 /**
@@ -305,10 +316,61 @@ header('Content-Type: application/json');
 3. **Test Case 3 (Single Extension):**
    - Admin extends unattempted user to Nov 29.
    - **Expected:** Only that user unlocks. All other unattempted users remain locked.
-4. **Test Case 4 (New Joiner Working Days):**
-   - User joins Friday, Nov 27.
-   - System calculates 7 working days skipping Sat Nov 28 (if 2nd/3rd), Sun Nov 29, and official holidays.
-   - **Expected:** Accurate 7th working day at 11:59:59 PM.
+4. **Test Case 4 (Actual Calendar: Nov 25, 2026 Batch 2 New Joiner):**
+   - User joins **Wednesday, Nov 25, 2026**.
+   - Calendar day breakdown:
+     - Day 1: Wed, Nov 25 -> Working Day 1
+     - Day 2: Thu, Nov 26 -> Working Day 2
+     - Day 3: Fri, Nov 27 -> Working Day 3
+     - Day 4: Sat, Nov 28 -> **4th Saturday (Day 28: Working Day 4)**
+     - Sun, Nov 29 -> Sunday (OFF / Excluded)
+     - Day 5: Mon, Nov 30 -> Working Day 5
+     - Day 6: Tue, Dec 01 -> Working Day 6
+     - Day 7: Wed, Dec 02 -> Working Day 7
+   - **Expected:** Deadline is **Wednesday, Dec 02, 2026 at 23:59:59 IST**.
+
+5. **Test Case 5 (Actual Calendar: Friday, Nov 27, 2026 Joiner):**
+   - User joins **Friday, Nov 27, 2026**.
+   - Calendar day breakdown:
+     - Day 1: Fri, Nov 27 -> Working Day 1
+     - Day 2: Sat, Nov 28 -> **4th Saturday (Day 28: Working Day 2)**
+     - Sun, Nov 29 -> Sunday (OFF / Excluded)
+     - Day 3: Mon, Nov 30 -> Working Day 3
+     - Day 4: Tue, Dec 01 -> Working Day 4
+     - Day 5: Wed, Dec 02 -> Working Day 5
+     - Day 6: Thu, Dec 03 -> Working Day 6
+     - Day 7: Fri, Dec 04 -> Working Day 7
+   - **Expected:** Deadline is **Friday, Dec 04, 2026 at 23:59:59 IST**.
+
+6. **Test Case 6 (Actual Calendar: 2nd & 3rd Saturday Exclusion):**
+   - User joins **Thursday, Dec 10, 2026**.
+   - Calendar day breakdown:
+     - Day 1: Thu, Dec 10 -> Working Day 1
+     - Day 2: Fri, Dec 11 -> Working Day 2
+     - Sat, Dec 12 -> **2nd Saturday (Day 12: OFF / Excluded)**
+     - Sun, Dec 13 -> Sunday (OFF / Excluded)
+     - Day 3: Mon, Dec 14 -> Working Day 3
+     - Day 4: Tue, Dec 15 -> Working Day 4
+     - Day 5: Wed, Dec 16 -> Working Day 5
+     - Day 6: Thu, Dec 17 -> Working Day 6
+     - Day 7: Fri, Dec 18 -> Working Day 7
+     - Sat, Dec 19 -> **3rd Saturday (Day 19: OFF / Excluded)**
+   - **Expected:** Deadline is **Friday, Dec 18, 2026 at 23:59:59 IST**.
+
+7. **Test Case 7 (Future Year Proof: 2027 Joiner):**
+   - User joins in **January 2027** (e.g., Monday, Jan 04, 2027).
+   - Calendar day breakdown:
+     - Day 1: Mon, Jan 04, 2027 -> Working Day 1
+     - Day 2: Tue, Jan 05, 2027 -> Working Day 2
+     - Day 3: Wed, Jan 06, 2027 -> Working Day 3
+     - Day 4: Thu, Jan 07, 2027 -> Working Day 4
+     - Day 5: Fri, Jan 08, 2027 -> Working Day 5
+     - Sat, Jan 09, 2027 -> **2nd Saturday (Day 9: OFF / Excluded)**
+     - Sun, Jan 10, 2027 -> Sunday (OFF / Excluded)
+     - Day 6: Mon, Jan 11, 2027 -> Working Day 6
+     - Day 7: Tue, Jan 12, 2027 -> Working Day 7
+   - **Expected:** Deadline is **Tuesday, Jan 12, 2027 at 23:59:59 IST**.
+   - *Proves zero code changes needed when 2027, 2028, or 2029 arrives.*
 
 ---
 

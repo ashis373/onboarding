@@ -9,6 +9,12 @@ header("Pragma: no-cache");
 
 $NEED_PDO = false;
 require_once __DIR__ . '/../db.php';
+if (file_exists(__DIR__ . '/../deadline_helper.php')) {
+    require_once __DIR__ . '/../deadline_helper.php';
+}
+if (file_exists(__DIR__ . '/../certificate_helper.php')) {
+    require_once __DIR__ . '/../certificate_helper.php';
+}
 
 if (session_status() === PHP_SESSION_NONE) { 
     session_start(); 
@@ -410,6 +416,55 @@ if ($res) {
         $rawStatus = $r['user_status'];
         $isEx = ($rawStatus !== null && $rawStatus != 0 && $rawStatus !== '0' && $rawStatus !== 'online');
 
+        $deadlineInfo = null;
+        $certInfo = null;
+        $passedDateFmt = null;
+        if ($isEnrolled) {
+            if (function_exists('getEmployeeDeadlineStatus')) {
+                try {
+                    $deadlineInfo = getEmployeeDeadlineStatus($uid, $conn);
+                } catch (Throwable $e) {
+                    $deadlineInfo = null;
+                }
+            }
+
+            // Fetch Certificate Download Audit report safely
+            try {
+                $cStmt = $conn->prepare("SELECT COUNT(*) AS download_count, MAX(downloaded_at) AS last_downloaded_at FROM onboard_certificate_downloads WHERE user_id = ?");
+                if ($cStmt) {
+                    $cStmt->bind_param("i", $uid);
+                    $cStmt->execute();
+                    $cRow = $cStmt->get_result()->fetch_assoc();
+                    $cStmt->close();
+                    if ($cRow && !empty($cRow['download_count'])) {
+                        $certInfo = [
+                            'download_count' => (int)$cRow['download_count'],
+                            'last_downloaded_at' => $cRow['last_downloaded_at'],
+                            'last_downloaded_fmt' => !empty($cRow['last_downloaded_at']) ? date('d-M-Y h:i A', strtotime($cRow['last_downloaded_at'])) : null
+                        ];
+                    }
+                }
+            } catch (Throwable $e) {
+                $certInfo = null;
+            }
+
+            // Fetch passed date for certificate rendering safely
+            try {
+                $pStmt = $conn->prepare("SELECT attempted_at FROM onboard_induction_assessment_attempts WHERE user_id = ? AND result = 'Passed' ORDER BY id DESC LIMIT 1");
+                if ($pStmt) {
+                    $pStmt->bind_param("i", $uid);
+                    $pStmt->execute();
+                    $pRow = $pStmt->get_result()->fetch_assoc();
+                    $pStmt->close();
+                    if ($pRow && !empty($pRow['attempted_at'])) {
+                        $passedDateFmt = date('F j, Y', strtotime($pRow['attempted_at']));
+                    }
+                }
+            } catch (Throwable $e) {
+                $passedDateFmt = null;
+            }
+        }
+
         $rows[] = [
             'uid' => $uid,
             'name' => $fullName,
@@ -427,6 +482,9 @@ if ($res) {
             'is_moodle_enrolled' => $isEnrolled,
             'is_ex_employee' => $isEx,
             'user_status' => $rawStatus,
+            'deadline_info' => $deadlineInfo,
+            'certificate_info' => $certInfo,
+            'passed_date_fmt' => $passedDateFmt,
             'progress' => [ 
                 'completed' => $completed, 
                 'total' => $totalModules, 

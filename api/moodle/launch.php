@@ -6,6 +6,9 @@ $NEED_PDO = false;
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/sync_user.php';
+if (file_exists(__DIR__ . '/../deadline_helper.php')) {
+    require_once __DIR__ . '/../deadline_helper.php';
+}
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -473,6 +476,13 @@ if ($chkSet && $sRow = $chkSet->fetch_assoc()) {
 }
 
 $isAdmin = in_array((string)$user_id, ['26', '64', '205']) || (string)($user['user_role'] ?? '') === '1';
+
+// Enforce Onboarding Deadline & Access Lockout
+$deadlineStatus = getEmployeeDeadlineStatus((int)$user_id, $conn);
+if (!$isAdmin && !empty($deadlineStatus['is_deadline_locked']) && empty($deadlineStatus['has_passed'])) {
+    http_response_code(403);
+    die("Access denied: Your onboarding deadline expired on " . htmlspecialchars($deadlineStatus['effective_deadline_fmt'] ?? 'the cutoff date') . ". Course launch is locked. Please contact your manager or HR for an extension.");
+}
 
 if ($seqLocking && $cmid) {
     // Fetch active learning modules in order of sort_order ASC, id ASC

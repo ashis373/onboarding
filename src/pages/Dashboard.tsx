@@ -59,7 +59,15 @@ import {
   Download,
   Loader2
 } from "lucide-react";
-import { downloadCertificatePdf } from "@/lib/certificateGenerator";
+import { downloadCertificatePdf, generateCertificateDataUrl } from "@/lib/certificateGenerator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { apiGet, apiPost, API_BASE } from "@/lib/api";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -294,8 +302,14 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
   };
 
   const [downloadingEmployeeCert, setDownloadingEmployeeCert] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [generatingPreview, setGeneratingPreview] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
   const isCertDownloadAllowed = Boolean(
-    (moodleData?.allow_employee_certificate_download ?? assessmentHistoryData?.allow_employee_certificate_download)
+    assessmentHistoryData?.allow_employee_certificate_download !== undefined
+      ? assessmentHistoryData.allow_employee_certificate_download
+      : (moodleData as any)?.allow_employee_certificate_download
   );
 
   const handleDownloadEmployeeCertificate = async () => {
@@ -324,6 +338,35 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
       });
     } finally {
       setDownloadingEmployeeCert(false);
+    }
+  };
+
+  const handleOpenCertificatePreview = async () => {
+    const candidateName = [user?.firstname, user?.lastname].filter(Boolean).join(" ").trim() || assessmentHistoryData?.employee?.name || moodleData?.employee?.name || "HexaLearn Employee";
+    const candidateCode = user?.emp_code || (user?.uid ? `HL${user.uid}` : (assessmentHistoryData?.employee?.emp_code || (moodleData?.employee?.uid ? `HL${moodleData.employee.uid}` : "HL000")));
+    const candidateUid = Number(user?.uid || assessmentHistoryData?.employee?.uid || moodleData?.employee?.uid || 0);
+    const passedDate = latestAttempt?.date || deadlineInfo?.effective_deadline_fmt || "November 20, 2026";
+
+    setPreviewModalOpen(true);
+    setGeneratingPreview(true);
+    setPreviewImageUrl(null);
+    try {
+      const dataUrl = await generateCertificateDataUrl({
+        name: candidateName,
+        empCode: candidateCode,
+        dateStr: passedDate,
+        userId: candidateUid,
+      });
+      setPreviewImageUrl(dataUrl);
+    } catch (err: any) {
+      console.error("Failed to generate certificate preview:", err);
+      toast({
+        title: "Preview Error",
+        description: err?.message || "Could not generate certificate preview.",
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingPreview(false);
     }
   };
 
@@ -1996,18 +2039,33 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
 
                       <div className="flex items-center justify-center sm:justify-start gap-2.5 pt-0.5 flex-wrap">
                         {Boolean(isCertDownloadAllowed && isPassed) && (
-                          <button
-                            onClick={handleDownloadEmployeeCertificate}
-                            disabled={downloadingEmployeeCert}
-                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {downloadingEmployeeCert ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Award className="h-3.5 w-3.5" />
-                            )}
-                            <span>Download Certificate</span>
-                          </button>
+                          <>
+                            <button
+                              onClick={handleOpenCertificatePreview}
+                              disabled={generatingPreview || downloadingEmployeeCert}
+                              className="px-3.5 py-2 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 text-xs font-bold transition-all shadow-2xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              title="Preview certificate"
+                            >
+                              {generatingPreview ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
+                              ) : (
+                                <Eye className="h-3.5 w-3.5 text-emerald-600" />
+                              )}
+                              <span>Preview</span>
+                            </button>
+                            <button
+                              onClick={handleDownloadEmployeeCertificate}
+                              disabled={downloadingEmployeeCert}
+                              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              {downloadingEmployeeCert ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Award className="h-3.5 w-3.5" />
+                              )}
+                              <span>Download Certificate</span>
+                            </button>
+                          </>
                         )}
                         <button
                           onClick={() => handleTabChange('attempt_history')}
@@ -2601,9 +2659,22 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                           </div>
                         </div>
 
-                        {/* Download Certificate Button: Shows ONLY if Passed and Admin has turned ON the master switch (0 extra API calls) */}
+                        {/* Preview & Download Certificate Buttons: Shows ONLY if Passed and Admin has turned ON the master switch */}
                         {Boolean(isCertDownloadAllowed && isOverallPassed) && (
-                          <div className="shrink-0 self-stretch sm:self-center">
+                          <div className="shrink-0 self-stretch sm:self-center flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+                            <button
+                              onClick={handleOpenCertificatePreview}
+                              disabled={generatingPreview || downloadingEmployeeCert}
+                              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-white/90 dark:bg-slate-900/90 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 text-xs font-bold transition-all shadow-2xs inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 hover:shadow-xs"
+                              title="Preview your official certificate"
+                            >
+                              {generatingPreview ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                              ) : (
+                                <Eye className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                              )}
+                              <span>Preview Certificate</span>
+                            </button>
                             <button
                               onClick={handleDownloadEmployeeCertificate}
                               disabled={downloadingEmployeeCert}
@@ -2901,6 +2972,81 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
           onFocus={focusCourseWindow}
           onCloseSession={closeActiveSession}
         />
+
+        {/* Employee Certificate Preview Modal */}
+        <Dialog open={previewModalOpen} onOpenChange={(open) => !open && setPreviewModalOpen(false)}>
+          <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  <Award className="h-5 w-5" />
+                </div>
+                <DialogTitle className="text-lg font-black">
+                  Induction Certificate Preview
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-xs">
+                Official HexaLearn Induction Assessment Completion Certificate for{" "}
+                <strong>
+                  {[user?.firstname, user?.lastname].filter(Boolean).join(" ").trim() || "Employee"}
+                </strong>
+                {" "}({user?.emp_code || (user?.uid ? `HL${user.uid}` : "HL000")}).
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Preview Body */}
+            <div className="my-3 flex flex-col items-center justify-center min-h-[320px] bg-slate-950/5 dark:bg-slate-900 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
+              {generatingPreview ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-16">
+                  <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+                  <span className="text-xs font-semibold text-slate-500">
+                    Generating high-resolution certificate preview...
+                  </span>
+                </div>
+              ) : previewImageUrl ? (
+                <div className="w-full flex items-center justify-center overflow-hidden rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 bg-white">
+                  <img
+                    src={previewImageUrl}
+                    alt="Certificate Preview"
+                    className="w-full h-auto object-contain block max-h-[60vh] select-none"
+                  />
+                </div>
+              ) : (
+                <div className="text-xs text-rose-500 py-12">
+                  Failed to load certificate preview.
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <DialogFooter className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <span className="text-[11px] text-muted-foreground">
+                Verified official digital certificate issued by HexaLearn Solutions.
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => setPreviewModalOpen(false)}
+                  className="text-xs"
+                >
+                  Close
+                </Button>
+                <Button
+                  onClick={handleDownloadEmployeeCertificate}
+                  disabled={downloadingEmployeeCert}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 text-xs font-bold"
+                >
+                  {downloadingEmployeeCert ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  <span>Download Official PDF</span>
+                </Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

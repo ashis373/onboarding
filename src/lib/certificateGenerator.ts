@@ -117,7 +117,7 @@ export async function generateCertificateDataUrl(options: CertificateOptions): P
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#143e70"; // HexaLearn Deep Brand Navy Blue
-  ctx.font = `italic bold ${Math.round(82 * scaleY)}px "Playfair Display", Georgia, Baskerville, "Times New Roman", serif`;
+  ctx.font = `italic bold ${Math.round(102 * scaleY)}px "Playfair Display", Georgia, Baskerville, "Times New Roman", serif`;
   ctx.fillText(formattedName, 1918 * scaleX, 1138 * scaleY);
 
   // 5. Draw Employee ID (Centered beneath the name in Slate 700)
@@ -130,12 +130,12 @@ export async function generateCertificateDataUrl(options: CertificateOptions): P
     ctx.fillText(displayCode, 1917 * scaleX, 1332 * scaleY);
   }
 
-  // 6. Draw Completion Date (Left-aligned under Completion Date heading)
-  ctx.textAlign = "left";
+  // 6. Draw Completion Date (Centered under Completion Date heading)
+  ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#0f172a"; // Dark Slate 900
-  ctx.font = `bold ${Math.round(40 * scaleY)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
-  ctx.fillText(formattedDate, 2054 * scaleX, 1951 * scaleY);
+  ctx.font = `bold ${Math.round(50 * scaleY)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  ctx.fillText(formattedDate, 2345 * scaleX, 1955 * scaleY);
 
   // 7. Convert Canvas to High-Quality PNG Data URL
   return canvas.toDataURL("image/png", 1.0);

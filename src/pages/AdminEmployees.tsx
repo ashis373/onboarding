@@ -77,6 +77,11 @@ interface AdminEmployeesResponse {
       assess_attempted: number;
       assess_never: number;
     };
+    departmentBreakdown?: Array<{
+      id: number;
+      name: string;
+      count: number;
+    }>;
     currentEnrolled?: number;
     exEnrolled?: number;
     empType?: string;
@@ -326,6 +331,18 @@ const AdminEmployees = () => {
     const match = departments.find(d => String(d.id) === String(selectedDept));
     return match ? match.name : `Dept #${selectedDept}`;
   }, [selectedDept, departments]);
+
+  // Synchronized Status Dropdown Value
+  const currentStatusDropdownValue = useMemo(() => {
+    if (subFilter === 'courses_incomplete') return 'courses_incomplete';
+    if (subFilter === 'assess_never') return 'assess_never';
+    if (filterTab === 'completed' || subFilter === 'courses_done') return 'courses_done';
+    if (filterTab === 'certified' || subFilter === 'assess_passed') return 'certified';
+    if (filterTab === 'locked' || subFilter === 'locked') return 'locked';
+    if (filterTab === 'not_enrolled' || subFilter === 'not_enrolled') return 'not_enrolled';
+    if (filterTab === 'enrolled') return 'enrolled';
+    return 'all';
+  }, [filterTab, subFilter]);
 
   // Check if any non-default filters are active
   const hasActiveFilters = useMemo(() => {
@@ -616,7 +633,7 @@ const AdminEmployees = () => {
               </div>
             </div>
 
-            {/* 2. Department Dropdown */}
+            {/* 2. Department Dropdown with Dynamic Counts */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                 <Building2 className="h-3 w-3 text-slate-400" />
@@ -632,11 +649,14 @@ const AdminEmployees = () => {
                   className="w-full h-10 px-3 pr-8 rounded-xl border border-slate-200/90 text-xs font-semibold bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#00A389]/20 focus:border-[#00A389] cursor-pointer text-slate-700 transition-all appearance-none"
                 >
                   <option value="all">
-                    All Departments ({departments.reduce((acc, d) => acc + (d.employee_count || 0), 0)})
+                    All Departments ({summary.departmentBreakdown ? summary.departmentBreakdown.reduce((acc, d) => acc + (d.count || 0), 0) : departments.reduce((acc, d) => acc + (d.employee_count || 0), 0)})
                   </option>
-                  {departments.map((d) => (
+                  {(summary.departmentBreakdown && summary.departmentBreakdown.length > 0
+                    ? summary.departmentBreakdown
+                    : departments.map(d => ({ id: d.id, name: d.name, count: d.employee_count }))
+                  ).map((d) => (
                     <option key={d.id} value={d.id}>
-                      {d.name} ({d.employee_count})
+                      {d.name} ({d.count})
                     </option>
                   ))}
                 </select>
@@ -644,7 +664,7 @@ const AdminEmployees = () => {
               </div>
             </div>
 
-            {/* 3. Onboarding Status Dropdown */}
+            {/* 3. Onboarding Status Dropdown with Live Company Roster Counts */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                 <CheckCircle2 className="h-3 w-3 text-slate-400" />
@@ -652,18 +672,47 @@ const AdminEmployees = () => {
               </label>
               <div className="relative">
                 <select
-                  value={statusFilter}
+                  value={currentStatusDropdownValue}
                   onChange={(e) => {
-                    setStatusFilter(e.target.value as any);
+                    const val = e.target.value;
                     setPage(1);
+                    if (val === 'all') {
+                      setFilterTab('all');
+                      setSubFilter('all');
+                    } else if (val === 'enrolled') {
+                      setFilterTab('enrolled');
+                      setSubFilter('all');
+                    } else if (val === 'courses_done') {
+                      setFilterTab('completed');
+                      setSubFilter('courses_done');
+                    } else if (val === 'courses_incomplete') {
+                      setFilterTab('enrolled');
+                      setSubFilter('courses_incomplete');
+                    } else if (val === 'certified') {
+                      setFilterTab('certified');
+                      setSubFilter('assess_passed');
+                    } else if (val === 'assess_never') {
+                      setFilterTab('enrolled');
+                      setSubFilter('assess_never');
+                    } else if (val === 'locked') {
+                      setFilterTab('locked');
+                      setSubFilter('all');
+                    } else if (val === 'not_enrolled') {
+                      setFilterTab('not_enrolled');
+                      setSubFilter('all');
+                      setEmpType('current');
+                    }
                   }}
                   className="w-full h-10 px-3 pr-8 rounded-xl border border-slate-200/90 text-xs font-semibold bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#00A389]/20 focus:border-[#00A389] cursor-pointer text-slate-700 transition-all appearance-none"
                 >
-                  <option value="all">All Statuses</option>
-                  <option value="not_started">Not Started (0%)</option>
-                  <option value="in_progress">In Progress (1–99%)</option>
-                  <option value="completed">Completed (100%)</option>
-                  <option value="not_enrolled">Not Enrolled in LMS</option>
+                  <option value="all">All Staff ({summary.totalStaff ?? 50})</option>
+                  <option value="enrolled">All Enrolled ({summary.enrolledBreakdown?.all ?? summary.moodleEnrolled ?? 48})</option>
+                  <option value="courses_done">100% Courses Done ({summary.enrolledBreakdown?.courses_done ?? summary.completed ?? 45})</option>
+                  <option value="courses_incomplete">Courses Incomplete ({summary.enrolledBreakdown?.courses_incomplete ?? 3})</option>
+                  <option value="certified">Assessment Passed ({summary.enrolledBreakdown?.assess_passed ?? summary.certified ?? 36} Certified)</option>
+                  <option value="assess_never">Never Attempted Assessment ({summary.enrolledBreakdown?.assess_never ?? 11})</option>
+                  <option value="locked">Deadline Locked ({summary.lockedBreakdown?.all ?? summary.deadlineLocked ?? 12})</option>
+                  <option value="not_enrolled">Not Enrolled ({summary.notEnrolled ?? 2})</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
               </div>
@@ -1113,254 +1162,6 @@ const AdminEmployees = () => {
                   </div>
                 </div>
               </div>
-
-              {/* Quick Sub-Filter Pills for Total Company Staff (50) */}
-              {filterTab === 'all' && (
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wider pr-1 flex items-center gap-1.5">
-                      <Users className="h-3.5 w-3.5 text-slate-600" />
-                      Company Roster Breakdown:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('all'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'all'
-                        ? 'bg-slate-800 text-white shadow-xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
-                        }`}
-                    >
-                      All Staff ({summary.totalStaff ?? 50})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('enrolled'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'enrolled'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
-                        }`}
-                    >
-                      Enrolled in LMS ({summary.moodleEnrolled ?? 48})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('not_enrolled'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'not_enrolled'
-                        ? 'bg-amber-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-amber-50 text-amber-800 border border-amber-200'
-                        }`}
-                    >
-                      Not Enrolled ({summary.notEnrolled ?? 2})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('courses_done'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_done'
-                        ? 'bg-teal-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-teal-50 text-teal-800 border border-teal-200'
-                        }`}
-                    >
-                      100% Courses Done ({summary.completed ?? 45})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('assess_passed'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_passed'
-                        ? 'bg-[#00A389] text-white shadow-xs'
-                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
-                        }`}
-                    >
-                      Assessment Passed ({summary.certified ?? 36} Certified)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('locked'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'locked'
-                        ? 'bg-rose-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-rose-50 text-rose-800 border border-rose-200'
-                        }`}
-                    >
-                      Deadline Locked ({summary.deadlineLocked ?? 12})
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Quick Sub-Filter Pills for Enrolled (48) */}
-              {filterTab === 'enrolled' && (
-                <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider pr-1 flex items-center gap-1.5">
-                      <Users className="h-3.5 w-3.5 text-emerald-600" />
-                      Enrolled Breakdown:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('all'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'all'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
-                        }`}
-                    >
-                      All Enrolled ({summary.enrolledBreakdown?.all ?? summary.moodleEnrolled ?? 48})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('courses_done'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_done'
-                        ? 'bg-emerald-700 text-white shadow-xs'
-                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
-                        }`}
-                    >
-                      100% Courses Done ({summary.enrolledBreakdown?.courses_done ?? 45})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('courses_incomplete'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_incomplete'
-                        ? 'bg-amber-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-amber-50 text-amber-800 border border-amber-200'
-                        }`}
-                    >
-                      Courses Incomplete ({summary.enrolledBreakdown?.courses_incomplete ?? 3})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('assess_passed'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_passed'
-                        ? 'bg-teal-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-teal-50 text-teal-800 border border-teal-200'
-                        }`}
-                    >
-                      Assessment Passed ({summary.enrolledBreakdown?.assess_passed ?? 36})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('assess_never'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_never'
-                        ? 'bg-slate-700 text-white shadow-xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
-                        }`}
-                    >
-                      Never Attempted Assessment ({summary.enrolledBreakdown?.assess_never ?? 11})
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Quick Sub-Filter Pills for Courses Completed (45) */}
-              {filterTab === 'completed' && (
-                <div className="bg-teal-50/60 border border-teal-200 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] font-bold text-teal-900 uppercase tracking-wider pr-1 flex items-center gap-1.5">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-teal-600" />
-                      Courses Done Breakdown:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('all'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'all'
-                        ? 'bg-teal-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-teal-100 text-teal-800 border border-teal-200'
-                        }`}
-                    >
-                      All 10 Courses Done ({summary.completedBreakdown?.all ?? summary.completed ?? 45})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('assess_passed'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_passed'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
-                        }`}
-                    >
-                      Assessment Passed ({summary.completedBreakdown?.assess_passed ?? 36} Certified)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('assess_failed'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_failed'
-                        ? 'bg-rose-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-rose-50 text-rose-800 border border-rose-200'
-                        }`}
-                    >
-                      Failed Attempt ({summary.completedBreakdown?.assess_failed ?? 1})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('assess_never'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_never'
-                        ? 'bg-slate-700 text-white shadow-xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
-                        }`}
-                    >
-                      Never Attempted Assessment ({summary.completedBreakdown?.assess_never ?? 8})
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Quick Sub-Filter Pills for Deadline Locked */}
-              {filterTab === 'locked' && (
-                <div className="bg-rose-50/60 border border-rose-200 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] font-bold text-rose-900 uppercase tracking-wider pr-1 flex items-center gap-1.5">
-                      <Lock className="h-3.5 w-3.5 text-rose-600" />
-                      Locked Breakdown:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('all'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'all'
-                        ? 'bg-rose-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-rose-100 text-rose-800 border border-rose-200'
-                        }`}
-                    >
-                      All Locked ({summary.lockedBreakdown?.all ?? summary.deadlineLocked ?? 12})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('courses_done'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_done'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
-                        }`}
-                    >
-                      100% Courses Done ({summary.lockedBreakdown?.courses_done ?? 8})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('courses_incomplete'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_incomplete'
-                        ? 'bg-amber-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-amber-50 text-amber-800 border border-amber-200'
-                        }`}
-                    >
-                      Courses Incomplete ({summary.lockedBreakdown?.courses_incomplete ?? 4})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('assess_attempted'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_attempted'
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'bg-white hover:bg-blue-50 text-blue-800 border border-blue-200'
-                        }`}
-                    >
-                      Attempted Assessment ({summary.lockedBreakdown?.assess_attempted ?? 1})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubFilter('assess_never'); setPage(1); }}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_never'
-                        ? 'bg-slate-700 text-white shadow-xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
-                        }`}
-                    >
-                      Never Attempted ({summary.lockedBreakdown?.assess_never ?? 11})
-                    </button>
-                  </div>
-                </div>
-              )}
 
               {/* View Mode 1: Responsive Grid Format */}
               {viewMode === 'grid' ? (

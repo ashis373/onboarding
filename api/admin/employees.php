@@ -426,14 +426,9 @@ try {
 // -------------------------------------------------------------
 // 5. Construct Filtered WHERE Clauses in SQL
 // -------------------------------------------------------------
-$whereParts = [$empStatusCond];
+$baseWhereParts = [$empStatusCond];
 
-// A. Department filter
-if ($deptFilter > 0) {
-    $whereParts[] = "u.department = " . $deptFilter;
-}
-
-// B. Search filter (multi-field with debounce on frontend)
+// A. Search filter (multi-field with debounce on frontend)
 if ($search !== '') {
     $s = $conn->real_escape_string($search);
     $searchParts = [
@@ -457,89 +452,97 @@ if ($search !== '') {
     if (is_numeric($s)) {
         $searchParts[] = "u.uid = " . intval($s);
     }
-    $whereParts[] = "(" . implode(' OR ', $searchParts) . ")";
+    $baseWhereParts[] = "(" . implode(' OR ', $searchParts) . ")";
 }
 
-// C. Status Filter (takes precedence over legacy tab if specified)
+// B. Status Filter (takes precedence over legacy tab if specified)
 if ($statusFilter !== 'all') {
     if ($statusFilter === 'completed') {
-        $whereParts[] = "m.id IS NOT NULL AND IFNULL(prg.done_cnt, 0) >= $totalModules";
+        $baseWhereParts[] = "m.id IS NOT NULL AND IFNULL(prg.done_cnt, 0) >= $totalModules";
     } elseif ($statusFilter === 'in_progress') {
-        $whereParts[] = "m.id IS NOT NULL AND ((IFNULL(prg.done_cnt, 0) > 0 AND IFNULL(prg.done_cnt, 0) < $totalModules) OR (IFNULL(prg.done_cnt, 0) = 0 AND IFNULL(act.has_started, 0) = 1))";
+        $baseWhereParts[] = "m.id IS NOT NULL AND ((IFNULL(prg.done_cnt, 0) > 0 AND IFNULL(prg.done_cnt, 0) < $totalModules) OR (IFNULL(prg.done_cnt, 0) = 0 AND IFNULL(act.has_started, 0) = 1))";
     } elseif ($statusFilter === 'not_started') {
-        $whereParts[] = "m.id IS NOT NULL AND IFNULL(prg.done_cnt, 0) = 0 AND IFNULL(act.has_started, 0) = 0";
+        $baseWhereParts[] = "m.id IS NOT NULL AND IFNULL(prg.done_cnt, 0) = 0 AND IFNULL(act.has_started, 0) = 0";
     } elseif ($statusFilter === 'certified') {
-        $whereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed')";
+        $baseWhereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed')";
     } elseif ($statusFilter === 'locked') {
-        $whereParts[] = "u.uid IN (SELECT d.user_id FROM onboard_employee_deadlines d LEFT JOIN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed') a ON a.user_id = d.user_id WHERE a.user_id IS NULL AND ((d.extended_deadline IS NOT NULL AND d.extended_deadline < NOW()) OR (d.extended_deadline IS NULL AND d.deadline_date < NOW())))";
+        $baseWhereParts[] = "u.uid IN (SELECT d.user_id FROM onboard_employee_deadlines d LEFT JOIN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed') a ON a.user_id = d.user_id WHERE a.user_id IS NULL AND ((d.extended_deadline IS NOT NULL AND d.extended_deadline < NOW()) OR (d.extended_deadline IS NULL AND d.deadline_date < NOW())))";
     } elseif ($statusFilter === 'downloaded') {
-        $whereParts[] = "u.uid IN (SELECT user_id FROM onboard_certificate_downloads)";
+        $baseWhereParts[] = "u.uid IN (SELECT user_id FROM onboard_certificate_downloads)";
     } elseif ($statusFilter === 'not_enrolled') {
-        $whereParts[] = "m.id IS NULL";
+        $baseWhereParts[] = "m.id IS NULL";
     }
 } else {
     // Apply legacy filter tab if status_filter is 'all'
     if ($filter === 'not_enrolled') {
-        $whereParts[] = "m.id IS NULL";
+        $baseWhereParts[] = "m.id IS NULL";
     } elseif ($filter === 'completed') {
-        $whereParts[] = "m.id IS NOT NULL AND IFNULL(prg.done_cnt, 0) >= $totalModules";
+        $baseWhereParts[] = "m.id IS NOT NULL AND IFNULL(prg.done_cnt, 0) >= $totalModules";
     } elseif ($filter === 'certified') {
-        $whereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed')";
+        $baseWhereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed')";
     } elseif ($filter === 'locked') {
-        $whereParts[] = "u.uid IN (SELECT d.user_id FROM onboard_employee_deadlines d LEFT JOIN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed') a ON a.user_id = d.user_id WHERE a.user_id IS NULL AND ((d.extended_deadline IS NOT NULL AND d.extended_deadline < NOW()) OR (d.extended_deadline IS NULL AND d.deadline_date < NOW())))";
+        $baseWhereParts[] = "u.uid IN (SELECT d.user_id FROM onboard_employee_deadlines d LEFT JOIN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed') a ON a.user_id = d.user_id WHERE a.user_id IS NULL AND ((d.extended_deadline IS NOT NULL AND d.extended_deadline < NOW()) OR (d.extended_deadline IS NULL AND d.deadline_date < NOW())))";
     } elseif ($filter === 'downloaded') {
-        $whereParts[] = "u.uid IN (SELECT user_id FROM onboard_certificate_downloads)";
+        $baseWhereParts[] = "u.uid IN (SELECT user_id FROM onboard_certificate_downloads)";
     } elseif ($filter === 'all') {
         // Show all
     } else {
         // Default 'enrolled'
-        $whereParts[] = "m.id IS NOT NULL";
+        $baseWhereParts[] = "m.id IS NOT NULL";
     }
 }
 
-// D. Completion Percentage Filter
+// C. Completion Percentage Filter
 if ($compMin !== null && $compMax !== null) {
     $pctExpr = "IF(m.id IS NULL, 0, LEAST(100, ROUND((IFNULL(prg.done_cnt, 0) / $totalModules) * 100)))";
-    $whereParts[] = "($pctExpr BETWEEN $compMin AND $compMax)";
+    $baseWhereParts[] = "($pctExpr BETWEEN $compMin AND $compMax)";
     if ($compMin > 0) {
-        $whereParts[] = "m.id IS NOT NULL";
+        $baseWhereParts[] = "m.id IS NOT NULL";
     }
 }
 
-// E. Subfilter (Works across Enrolled, Completed, Locked, and All Staff)
+// D. Subfilter (Works across Enrolled, Completed, Locked, and All Staff)
 if (!empty($subFilter) && $subFilter !== 'all') {
     if ($subFilter === 'enrolled') {
-        $whereParts[] = "m.id IS NOT NULL";
+        $baseWhereParts[] = "m.id IS NOT NULL";
     } elseif ($subFilter === 'not_enrolled') {
-        $whereParts[] = "m.id IS NULL";
+        $baseWhereParts[] = "m.id IS NULL";
     } elseif ($subFilter === 'courses_done') {
-        $whereParts[] = "IFNULL(prg.done_cnt, 0) >= $totalModules";
+        $baseWhereParts[] = "IFNULL(prg.done_cnt, 0) >= $totalModules";
     } elseif ($subFilter === 'courses_incomplete') {
-        $whereParts[] = "IFNULL(prg.done_cnt, 0) < $totalModules";
+        $baseWhereParts[] = "IFNULL(prg.done_cnt, 0) < $totalModules";
     } elseif ($subFilter === 'assess_passed') {
-        $whereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed' OR Quiz_score >= 80)";
+        $baseWhereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed' OR Quiz_score >= 80)";
     } elseif ($subFilter === 'assess_failed') {
-        $whereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Failed' AND user_id NOT IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed' OR Quiz_score >= 80))";
+        $baseWhereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Failed' AND user_id NOT IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed' OR Quiz_score >= 80))";
     } elseif ($subFilter === 'assess_attempted') {
-        $whereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts)";
+        $baseWhereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts)";
     } elseif ($subFilter === 'assess_never') {
-        $whereParts[] = "u.uid NOT IN (SELECT user_id FROM onboard_induction_assessment_attempts)";
+        $baseWhereParts[] = "u.uid NOT IN (SELECT user_id FROM onboard_induction_assessment_attempts)";
     } elseif ($subFilter === 'locked') {
-        $whereParts[] = "u.uid IN (SELECT d.user_id FROM onboard_employee_deadlines d LEFT JOIN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed') a ON a.user_id = d.user_id WHERE a.user_id IS NULL AND ((d.extended_deadline IS NOT NULL AND d.extended_deadline < NOW()) OR (d.extended_deadline IS NULL AND d.deadline_date < NOW())))";
+        $baseWhereParts[] = "u.uid IN (SELECT d.user_id FROM onboard_employee_deadlines d LEFT JOIN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed') a ON a.user_id = d.user_id WHERE a.user_id IS NULL AND ((d.extended_deadline IS NOT NULL AND d.extended_deadline < NOW()) OR (d.extended_deadline IS NULL AND d.deadline_date < NOW())))";
     }
 }
 
-// F. Assessment Status Filter
+// E. Assessment Status Filter
 if (!empty($assessmentFilter) && $assessmentFilter !== 'all') {
     if ($assessmentFilter === 'passed') {
-        $whereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed' OR Quiz_score >= 80)";
+        $baseWhereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts WHERE result = 'Passed' OR Quiz_score >= 80)";
     } elseif ($assessmentFilter === 'attempted') {
-        $whereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts)";
+        $baseWhereParts[] = "u.uid IN (SELECT user_id FROM onboard_induction_assessment_attempts)";
     } elseif ($assessmentFilter === 'never_attempted') {
-        $whereParts[] = "u.uid NOT IN (SELECT user_id FROM onboard_induction_assessment_attempts)";
+        $baseWhereParts[] = "u.uid NOT IN (SELECT user_id FROM onboard_induction_assessment_attempts)";
     }
 }
 
+// Base WHERE clause without single department selection (used for department breakdown counts)
+$baseWhereClause = "WHERE " . implode(' AND ', $baseWhereParts);
+
+// Final WHERE clause including department filter
+$whereParts = $baseWhereParts;
+if ($deptFilter > 0) {
+    $whereParts[] = "u.department = " . $deptFilter;
+}
 $whereClause = "WHERE " . implode(' AND ', $whereParts);
 
 // Common SQL Subquery Joins for progress and activity tracking
@@ -576,6 +579,33 @@ $fromAndJoins = "
 $countSql = "SELECT COUNT(DISTINCT u.uid) AS total_count $fromAndJoins $whereClause";
 $totalCountRes = $conn->query($countSql);
 $totalMatching = $totalCountRes ? intval($totalCountRes->fetch_assoc()['total_count']) : 0;
+
+// Dynamic Department Breakdown for current view (unfiltered by single dept selection)
+$deptBreakdown = [];
+try {
+    $deptSql = "
+        SELECT 
+            IFNULL(d.id, 0) AS dept_id,
+            IFNULL(d.name, 'Other') AS dept_name,
+            COUNT(DISTINCT u.uid) AS emp_count
+        $fromAndJoins
+        $baseWhereClause
+        GROUP BY IFNULL(d.id, 0), IFNULL(d.name, 'Other')
+        ORDER BY emp_count DESC, dept_name ASC
+    ";
+    if ($dRes = $conn->query($deptSql)) {
+        while ($dRow = $dRes->fetch_assoc()) {
+            if (intval($dRow['emp_count']) > 0) {
+                $deptBreakdown[] = [
+                    'id' => (int)$dRow['dept_id'],
+                    'name' => $dRow['dept_name'],
+                    'count' => (int)$dRow['emp_count']
+                ];
+            }
+        }
+    }
+} catch (\Throwable $e) {
+}
 
 $totalPages = $limit > 0 ? max(1, (int)ceil($totalMatching / $limit)) : 1;
 if ($page > $totalPages && $totalPages > 0) {
@@ -861,6 +891,7 @@ echo json_encode([
         'enrolledBreakdown' => $enrolledBreakdown,
         'completedBreakdown' => $completedBreakdown,
         'lockedBreakdown' => $lockedBreakdown,
+        'departmentBreakdown' => $deptBreakdown,
         'currentEnrolled' => $currentEnrolled,
         'exEnrolled' => $exEnrolled,
         'empType' => $empType

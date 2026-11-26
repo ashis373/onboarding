@@ -36,14 +36,17 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$userId = $_SESSION['user_id'] ?? $_SESSION['id'] ?? null;
+$sessionUserId = $_SESSION['user_id'] ?? $_SESSION['id'] ?? null;
 
-// Allow GET override for preview / testing
-if (!$userId && isset($_GET['uid']) && is_numeric($_GET['uid'])) {
-    $userId = (int)$_GET['uid'];
-} elseif (!$userId && isset($_GET['user_id']) && is_numeric($_GET['user_id'])) {
-    $userId = (int)$_GET['user_id'];
+// Allow GET override for admin inspection / preview / testing
+$targetUid = 0;
+if (isset($_GET['uid']) && is_numeric($_GET['uid'])) {
+    $targetUid = (int)$_GET['uid'];
+} elseif (isset($_GET['user_id']) && is_numeric($_GET['user_id'])) {
+    $targetUid = (int)$_GET['user_id'];
 }
+
+$userId = ($targetUid > 0) ? $targetUid : $sessionUserId;
 
 // Release session lock early so other requests do not block
 if (session_status() === PHP_SESSION_ACTIVE) {

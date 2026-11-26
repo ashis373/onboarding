@@ -250,11 +250,9 @@ if (empty($_GET['force_refresh']) && file_exists($empProgCacheFile) && (time() -
         $cData = json_decode($cachedEmpJson, true);
         if (is_array($cData) && !empty($cData['success'])) {
             $freshAtt = getInductionAttemptsForUser($conn, $employeeHexaUid);
-            if (!empty($freshAtt)) {
-                $cData['attempts'] = $freshAtt;
-                if (isset($cData['progress_summary'])) {
-                    $cData['progress_summary']['total_attempts'] = count($freshAtt);
-                }
+            $cData['attempts'] = is_array($freshAtt) ? $freshAtt : [];
+            if (isset($cData['progress_summary'])) {
+                $cData['progress_summary']['total_attempts'] = count($cData['attempts']);
             }
             header('Content-Type: application/json; charset=UTF-8');
             echo json_encode($cData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -768,11 +766,9 @@ if (empty($_GET['force_refresh']) && file_exists($empProgCacheFile) && (time() -
         $cData = json_decode($cachedEmpJson, true);
         if (is_array($cData) && !empty($cData['success'])) {
             $freshAtt = getInductionAttemptsForUser($conn, $employeeHexaUid);
-            if (!empty($freshAtt)) {
-                $cData['attempts'] = $freshAtt;
-                if (isset($cData['progress_summary'])) {
-                    $cData['progress_summary']['total_attempts'] = count($freshAtt);
-                }
+            $cData['attempts'] = is_array($freshAtt) ? $freshAtt : [];
+            if (isset($cData['progress_summary'])) {
+                $cData['progress_summary']['total_attempts'] = count($cData['attempts']);
             }
             header('Content-Type: application/json; charset=UTF-8');
             echo json_encode($cData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -869,77 +865,8 @@ $modules = [];
         $modStmt->close();
     }
 
-    // Historical Assessment Attempts fallback
-    if (empty($attempts)) {
-        $attQuery = "
-            SELECT 
-                a.id,
-                a.module_id,
-                m.title AS module_title,
-                a.attempt_number,
-                a.score,
-                a.result,
-                a.is_passed,
-                a.total_time,
-                a.total_time_seconds,
-                a.attempted_at
-            FROM onboard_assessment_attempts a
-            LEFT JOIN onboard_modules m ON m.id = a.module_id
-            WHERE a.user_id = ?
-              AND (a.score IS NOT NULL OR a.total_time_seconds > 0)
-            ORDER BY a.attempt_number ASC, a.attempted_at ASC
-        ";
-
-        $attStmt = $conn->prepare($attQuery);
-        if ($attStmt) {
-            $attStmt->bind_param("i", $progLookupUid);
-            $attStmt->execute();
-            $attRes = $attStmt->get_result();
-            while ($a = $attRes->fetch_assoc()) {
-                $attScore = $a['score'] !== null ? (float)$a['score'] : null;
-                $isPassed = !empty($a['is_passed']) || $a['result'] === 'Passed';
-                $isFailed = !$isPassed && ($a['result'] === 'Failed' || ($attScore !== null && $attScore < 80));
-
-                $timeSpent = $a['total_time'] ?: '00:00:00';
-                $cleanDur = trim(explode('.', $timeSpent)[0]);
-                $formattedDur = $cleanDur;
-                $durParts = explode(':', $cleanDur);
-                if (count($durParts) === 3) {
-                    $h = (int)$durParts[0]; $m = (int)$durParts[1]; $s = (int)$durParts[2];
-                    if ($h > 0) $formattedDur = "{$h}h {$m}m";
-                    elseif ($m > 0) $formattedDur = "{$m}m {$s}s";
-                    else $formattedDur = "{$s}s";
-                }
-
-                $attDate = '';
-                if (!empty($a['attempted_at'])) {
-                    try {
-                        $dt = new DateTime($a['attempted_at'], new DateTimeZone('UTC'));
-                        $dt->setTimezone(new DateTimeZone('Asia/Kolkata'));
-                        $attDate = $dt->format('M j, Y, g:i A');
-                    } catch (\Exception $e) {
-                        $attDate = date('M j, Y, g:i A', strtotime($a['attempted_at']));
-                    }
-                }
-
-                $attempts[] = [
-                    'id' => (int)$a['id'],
-                    'module_id' => (int)($a['module_id'] ?? 0),
-                    'module_title' => $a['module_title'] ?? 'Employee Assessment',
-                    'attempt' => (int)$a['attempt_number'],
-                    'score' => $attScore,
-                    'result' => $isPassed ? 'Passed' : ($isFailed ? 'Failed' : ($a['result'] ?: 'Incomplete')),
-                    'is_passed' => $isPassed,
-                    'is_failed' => $isFailed,
-                    'duration' => $formattedDur,
-                    'total_time_seconds' => (int)($a['total_time_seconds'] ?? 0),
-                    'date' => $attDate,
-                    'attempted_at' => $a['attempted_at']
-                ];
-            }
-            $attStmt->close();
-        }
-    }
+    // Authoritative Induction Assessment Attempts strictly from onboard_induction_assessment_attempts
+    $attempts = getInductionAttemptsForUser($conn, $employeeHexaUid);
 }
 
 // 6. Fetch Study Session Checkpoints Log (with timezone conversion from UTC to Asia/Kolkata)
@@ -1012,10 +939,7 @@ if (function_exists('flushMoodleApiUsage')) {
     flushMoodleApiUsage($conn, 'admin_employee_report', $currentUserId, $moodleUserId);
 }
 
-$freshAtt = getInductionAttemptsForUser($conn, $employeeHexaUid);
-if (!empty($freshAtt)) {
-    $attempts = $freshAtt;
-}
+$attempts = getInductionAttemptsForUser($conn, $employeeHexaUid);
 
 $empReportJson = json_encode([
     'success' => true,

@@ -213,7 +213,7 @@ if ($totalModules > 0) {
         FROM onboard_module_progress p
         JOIN onboard_moodle_users m_usr ON m_usr.hexa_uid = p.user_id
         JOIN user u ON u.uid = m_usr.hexa_uid AND $empStatusCond
-        INNER JOIN onboard_modules m ON (m.id = p.module_id OR (m.moodle_cmid > 0 AND m.moodle_cmid = p.module_id))
+        INNER JOIN onboard_modules m ON m.id = p.module_id
         WHERE (p.is_completed = 1 OR p.status = 'completed')
           AND p.status NOT IN ('incomplete', 'in_progress', 'suspend', 'browsed')
           AND m.is_active = 1
@@ -296,7 +296,7 @@ try {
         LEFT JOIN (
             SELECT p.user_id, COUNT(DISTINCT om.id) AS done_cnt
             FROM onboard_module_progress p
-            INNER JOIN onboard_modules om ON (om.id = p.module_id OR (om.moodle_cmid > 0 AND om.moodle_cmid = p.module_id))
+            INNER JOIN onboard_modules om ON om.id = p.module_id
             WHERE (p.is_completed = 1 OR p.status = 'completed')
               AND p.status NOT IN ('incomplete', 'in_progress', 'suspend', 'browsed')
               AND om.is_active = 1
@@ -349,7 +349,7 @@ try {
         LEFT JOIN (
             SELECT p.user_id, COUNT(DISTINCT om.id) AS done_cnt
             FROM onboard_module_progress p
-            INNER JOIN onboard_modules om ON (om.id = p.module_id OR (om.moodle_cmid > 0 AND om.moodle_cmid = p.module_id))
+            INNER JOIN onboard_modules om ON om.id = p.module_id
             WHERE (p.is_completed = 1 OR p.status = 'completed')
               AND p.status NOT IN ('incomplete', 'in_progress', 'suspend', 'browsed')
               AND om.is_active = 1
@@ -396,7 +396,7 @@ try {
         INNER JOIN (
             SELECT p.user_id, COUNT(DISTINCT om.id) AS done_cnt
             FROM onboard_module_progress p
-            INNER JOIN onboard_modules om ON (om.id = p.module_id OR (om.moodle_cmid > 0 AND om.moodle_cmid = p.module_id))
+            INNER JOIN onboard_modules om ON om.id = p.module_id
             WHERE (p.is_completed = 1 OR p.status = 'completed')
               AND p.status NOT IN ('incomplete', 'in_progress', 'suspend', 'browsed')
               AND om.is_active = 1
@@ -553,7 +553,7 @@ $fromAndJoins = "
     LEFT JOIN (
         SELECT p.user_id, COUNT(DISTINCT om.id) AS done_cnt
         FROM onboard_module_progress p
-        INNER JOIN onboard_modules om ON (om.id = p.module_id OR (om.moodle_cmid > 0 AND om.moodle_cmid = p.module_id))
+        INNER JOIN onboard_modules om ON om.id = p.module_id
         WHERE (p.is_completed = 1 OR p.status = 'completed')
           AND p.status NOT IN ('incomplete', 'in_progress', 'suspend', 'browsed')
           AND om.is_active = 1
@@ -566,7 +566,7 @@ $fromAndJoins = "
     LEFT JOIN (
         SELECT p.user_id, 1 AS has_started
         FROM onboard_module_progress p
-        INNER JOIN onboard_modules om ON (om.id = p.module_id OR (om.moodle_cmid > 0 AND om.moodle_cmid = p.module_id))
+        INNER JOIN onboard_modules om ON om.id = p.module_id
         WHERE om.is_active = 1 AND om.moodle_course_id > 0
           AND (p.attempts > 0 OR p.progress_percent > 0 OR p.status = 'in_progress' OR p.time_spent_seconds > 0)
         GROUP BY p.user_id

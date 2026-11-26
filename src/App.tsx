@@ -38,9 +38,10 @@ const AdminDeadlineLocked = lazy(() => import("./pages/AdminDeadlineLocked"));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60 * 1000,
-      gcTime: 10 * 60 * 1000,
+      staleTime: 5 * 60 * 1000, // 5 minutes universal cache across all admin navigation
+      gcTime: 15 * 60 * 1000,
       refetchOnWindowFocus: false,
+      refetchOnMount: false, // Prevents re-fetching if data is already in memory
       retry: 1,
     },
   },

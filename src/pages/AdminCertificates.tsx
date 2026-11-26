@@ -160,8 +160,8 @@ export default function AdminCertificates() {
   const { data, isLoading, isFetching, refetch } = useQuery<CertificatesResponse>({
     queryKey: ["admin_certificates", queryUrl],
     queryFn: () => apiGet<CertificatesResponse>(queryUrl),
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false,
     placeholderData: (prev) => prev,
   });

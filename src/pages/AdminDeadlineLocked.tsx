@@ -115,7 +115,9 @@ export default function AdminDeadlineLocked() {
       const res = await apiGet<ApiResponse>(`/admin/deadline_locked_employees.php?${params.toString()}`);
       return res;
     },
-    staleTime: 10 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const metrics = data?.metrics || {

@@ -260,7 +260,9 @@ export default function AdminAssessmentResults() {
       });
       return await apiGet(`/admin/assessment_results.php?${params.toString()}`);
     },
-    staleTime: 30 * 1000
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const metrics = data?.metrics || {

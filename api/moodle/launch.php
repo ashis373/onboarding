@@ -35,6 +35,17 @@ if ((int)$user['status'] !== 0) {
     die("Access denied: Inactive or unverified employee.");
 }
 
+// Enforce Onboarding Deadline & Access Lockout at entry point before any Moodle actions
+$isAdmin = in_array((string)$user_id, ['26', '64', '205']) || (string)($user['user_role'] ?? '') === '1';
+if (function_exists('getEmployeeDeadlineStatus')) {
+    $deadlineStatus = getEmployeeDeadlineStatus((int)$user_id, $conn);
+    if (!$isAdmin && !empty($deadlineStatus['is_deadline_locked']) && empty($deadlineStatus['has_passed'])) {
+        http_response_code(403);
+        $deadlineFmt = htmlspecialchars($deadlineStatus['effective_deadline_fmt'] ?? 'the cutoff date');
+        die("Access denied: Your onboarding deadline expired on " . $deadlineFmt . ". Course launch is locked. Please contact your manager or HR for an extension.");
+    }
+}
+
 // 2. Fetch or automatically establish linked Moodle mapping
 $stmt = $conn->prepare("SELECT moodle_user_id, sync_status FROM onboard_moodle_users WHERE hexa_uid = ?");
 $stmt->bind_param("i", $user_id);

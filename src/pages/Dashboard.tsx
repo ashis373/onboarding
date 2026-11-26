@@ -922,6 +922,15 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
     let allPrevCompleted = true;
     let prevTitle = '';
     return list.map((item) => {
+      // If deadline is expired and not certified, lock all incomplete courses!
+      if (isDeadlineLocked && item.status !== 'completed') {
+        return {
+          ...item,
+          status: 'locked' as const,
+          is_locked: true,
+          locked_reason: `Onboarding completion deadline of ${deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Access is locked.`,
+        };
+      }
       // If Admin has unlocked this course for this employee, bypass locking!
       if (item.admin_unlocked) {
         return {
@@ -954,7 +963,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
         locked_reason: `Complete '${prevTitle || 'previous modules'}' to unlock this course`
       };
     });
-  }, [moodleData]);
+  }, [moodleData, isDeadlineLocked, deadlineInfo]);
 
   // Pure live Moodle modules
   const displayModules = moodleModules;
@@ -1162,6 +1171,14 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
   // Next Recommended Activity (Single active uncompleted activity for Dashboard overview)
   const nextRecommendedActivity = useMemo(() => {
     if (!displayModules || displayModules.length === 0) return null;
+    // If deadline locked, show the first uncompleted course so user sees their pending module in locked state
+    if (isDeadlineLocked) {
+      const firstIncomplete = displayModules.find((m) => m.status !== 'completed' && !m.is_assessment && !m.title.toLowerCase().includes('assess') && !m.title.toLowerCase().includes('quiz'));
+      if (firstIncomplete) return firstIncomplete;
+      if (assessmentModule && !isPassed) return assessmentModule;
+      return null;
+    }
+
     // 1. In sequential progression, the genuinely next playable activity is the first uncompleted module that is NOT locked
     const nextPlayable = displayModules.find((m) => !m.is_locked && m.status !== 'completed' && !m.is_assessment && !m.title.toLowerCase().includes('assess') && !m.title.toLowerCase().includes('quiz'));
     if (nextPlayable) return nextPlayable;
@@ -1176,7 +1193,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
     }
 
     return null;
-  }, [displayModules, assessmentModule, isAssessmentLocked, isPassed]);
+  }, [displayModules, assessmentModule, isAssessmentLocked, isPassed, isDeadlineLocked]);
 
   // Authoritative Moodle LMS course image thumbnail resolver
   const getCourseThumbnail = (item: any) => {
@@ -1846,7 +1863,9 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                         Next Activity
                       </h3>
                       <p className="text-xs text-slate-500 font-medium mt-0.5">
-                        Continue your onboarding with the next course.
+                        {isDeadlineLocked
+                          ? 'Your access is locked because the onboarding completion deadline has expired.'
+                          : 'Continue your onboarding with the next course.'}
                       </p>
                     </div>
                   </div>
@@ -1903,21 +1922,38 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                         </div>
                       </div>
 
-                      {/* Continue / Start Button */}
-                      <button
-                        onClick={() => handleLaunchModule(nextRecommendedActivity)}
-                        className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#00A389] hover:bg-[#008f77] text-white text-xs sm:text-sm font-bold transition-all shadow-xs shrink-0 flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <span>
-                          {nextRecommendedActivity.admin_unlocked && nextRecommendedActivity.status === 'completed'
-                            ? 'Relaunch →'
-                            : nextRecommendedActivity.status === 'in_progress'
-                              ? 'Continue →'
-                              : nextRecommendedActivity.status === 'failed'
-                                ? 'Retake →'
-                                : 'Start →'}
-                        </span>
-                      </button>
+                      {/* Continue / Start / Locked Button */}
+                      {isDeadlineLocked ? (
+                        <div
+                          onClick={() => {
+                            toast({
+                              title: "Onboarding Access Locked",
+                              description: `Your onboarding completion deadline of ${deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Please contact your manager or HR for an extension.`,
+                              variant: "destructive",
+                            });
+                          }}
+                          className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-1.5 shadow-2xs cursor-not-allowed shrink-0"
+                          title="Onboarding access locked due to expired deadline"
+                        >
+                          <Lock className="h-4 w-4 text-rose-600 shrink-0" />
+                          <span>Locked (Deadline Expired)</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleLaunchModule(nextRecommendedActivity)}
+                          className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#00A389] hover:bg-[#008f77] text-white text-xs sm:text-sm font-bold transition-all shadow-xs shrink-0 flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <span>
+                            {nextRecommendedActivity.admin_unlocked && nextRecommendedActivity.status === 'completed'
+                              ? 'Relaunch →'
+                              : nextRecommendedActivity.status === 'in_progress'
+                                ? 'Continue →'
+                                : nextRecommendedActivity.status === 'failed'
+                                  ? 'Retake →'
+                                  : 'Start →'}
+                          </span>
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="bg-white border border-emerald-100 rounded-2xl p-5 sm:p-6 shadow-xs flex items-center gap-4 text-left">
@@ -2115,6 +2151,14 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                       <div
                         key={item.id || idx}
                         onClick={() => {
+                          if (isDeadlineLocked && item.status !== 'completed') {
+                            toast({
+                              title: "Onboarding Access Locked",
+                              description: `Your onboarding completion deadline of ${deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Please contact your manager or HR for an extension.`,
+                              variant: "destructive",
+                            });
+                            return;
+                          }
                           if (isItemLocked) {
                             toast({
                               title: "Course Locked",

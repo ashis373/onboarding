@@ -195,12 +195,29 @@ if (!$moodleUserId) {
     exit;
 }
 
-// 2.6 Serve per-user cached response unless course-close sync / force refresh is requested (no 600s auto-polling)
+// 2.6 Check Onboarding Completion Deadline & Access Lockout Status
+$deadlineStatus = null;
+$isAdmin = in_array((string)$user_id, ['26', '64', '205']) || (string)($user['user_role'] ?? '') === '1';
+if (function_exists('getEmployeeDeadlineStatus') && isset($conn) && $conn instanceof mysqli) {
+    try {
+        $deadlineStatus = getEmployeeDeadlineStatus((int)$user_id, $conn);
+    } catch (\Throwable $e) {
+        error_log("Notice: Error fetching deadline status: " . $e->getMessage());
+    }
+}
+$isDeadlineLocked = (!$isAdmin && !empty($deadlineStatus['is_deadline_locked']) && empty($deadlineStatus['has_passed']));
+
+// Serve per-user cached response unless course-close sync / force refresh is requested (no 600s auto-polling)
 $userCacheDir = __DIR__ . '/cache';
 $userCacheFile = $userCacheDir . '/user_courses_' . (int)$user_id . '_' . (int)$moodleUserId . '.json';
-$bypassUserCache = !empty($_GET['force_refresh']) || !empty($_GET['refresh_all']) || !empty($_GET['sync_progress']);
+// CRITICAL: If an employee is deadline-locked, NEVER bypass cache with sync_progress or sync_single_course!
+if ($isDeadlineLocked) {
+    $bypassUserCache = false;
+} else {
+    $bypassUserCache = !empty($_GET['force_refresh']) || !empty($_GET['refresh_all']) || !empty($_GET['sync_progress']);
+}
 
-$serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $activeRequiredCourseIds, $user_id, $onboardApiBase) {
+$serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $activeRequiredCourseIds, $user_id, $onboardApiBase, $isDeadlineLocked, $deadlineStatus) {
     if (!file_exists($userCacheFile)) {
         return false;
     }
@@ -324,6 +341,41 @@ $serveUserCacheIfValid = function() use ($userCacheFile, &$conn, $modSettings, $
                     }
                     if (function_exists('isEmployeeCertificateDownloadAllowed')) {
                         $decodedCached['allow_employee_certificate_download'] = isEmployeeCertificateDownloadAllowed($conn);
+                    }
+                    // For deadline-locked employees, ensure all incomplete courses and modules are marked locked
+                    if ($isDeadlineLocked && !empty($decodedCached['courses']) && is_array($decodedCached['courses'])) {
+                        $lockMsg = 'Onboarding completion deadline of ' . ($deadlineStatus['effective_deadline_fmt'] ?? 'the cutoff date') . ' has expired. Access is locked.';
+                        foreach ($decodedCached['courses'] as &$cItem) {
+                            $cDone = !empty($cItem['completed']) || !empty($cItem['is_completed']) || ($cItem['status'] ?? '') === 'completed' || (float)($cItem['progress_percent'] ?? 0) >= 100;
+                            if (!$cDone) {
+                                $cItem['status'] = 'locked';
+                                $cItem['is_locked'] = true;
+                                $cItem['locked_reason'] = $lockMsg;
+                            }
+                            if (!empty($cItem['modules']) && is_array($cItem['modules'])) {
+                                foreach ($cItem['modules'] as &$mItem) {
+                                    $mDone = !empty($mItem['is_completed']) || in_array(strtolower($mItem['status'] ?? ''), ['completed', 'passed'], true) || (float)($mItem['progress_percent'] ?? 0) >= 100;
+                                    if (!$mDone) {
+                                        $mItem['status'] = 'locked';
+                                        $mItem['is_locked'] = true;
+                                        $mItem['locked_reason'] = $lockMsg;
+                                    }
+                                }
+                                unset($mItem);
+                            }
+                            if (!empty($cItem['scorms']) && is_array($cItem['scorms'])) {
+                                foreach ($cItem['scorms'] as &$scItem) {
+                                    $scDone = !empty($scItem['is_completed']) || in_array(strtolower($scItem['status'] ?? ''), ['completed', 'passed'], true) || (float)($scItem['progress_percent'] ?? 0) >= 100;
+                                    if (!$scDone) {
+                                        $scItem['status'] = 'locked';
+                                        $scItem['is_locked'] = true;
+                                        $scItem['locked_reason'] = $lockMsg;
+                                    }
+                                }
+                                unset($scItem);
+                            }
+                        }
+                        unset($cItem);
                     }
                     $cachedPayload = json_encode($decodedCached, JSON_UNESCAPED_SLASHES);
                 } catch (\Throwable $e) {
@@ -2203,6 +2255,43 @@ if (isset($conn) && $conn instanceof mysqli) {
     } catch (\Throwable $e) {
         error_log("Notice: Error in deadline evaluation: " . $e->getMessage());
     }
+}
+
+$isAdminUser = in_array((string)$user_id, ['26', '64', '205']) || (string)($user['user_role'] ?? '') === '1';
+$isDeadlineExpiredLocked = (!$isAdminUser && !empty($deadlineInfo['is_deadline_locked']) && empty($deadlineInfo['has_passed']));
+if ($isDeadlineExpiredLocked && !empty($cleanCourses) && is_array($cleanCourses)) {
+    $lockMsg = 'Onboarding completion deadline of ' . ($deadlineInfo['effective_deadline_fmt'] ?? 'the cutoff date') . ' has expired. Access is locked.';
+    foreach ($cleanCourses as &$cItem) {
+        $cDone = !empty($cItem['completed']) || !empty($cItem['is_completed']) || ($cItem['status'] ?? '') === 'completed' || (float)($cItem['progress_percent'] ?? 0) >= 100;
+        if (!$cDone) {
+            $cItem['status'] = 'locked';
+            $cItem['is_locked'] = true;
+            $cItem['locked_reason'] = $lockMsg;
+        }
+        if (!empty($cItem['modules']) && is_array($cItem['modules'])) {
+            foreach ($cItem['modules'] as &$mItem) {
+                $mDone = !empty($mItem['is_completed']) || in_array(strtolower($mItem['status'] ?? ''), ['completed', 'passed'], true) || (float)($mItem['progress_percent'] ?? 0) >= 100;
+                if (!$mDone) {
+                    $mItem['status'] = 'locked';
+                    $mItem['is_locked'] = true;
+                    $mItem['locked_reason'] = $lockMsg;
+                }
+            }
+            unset($mItem);
+        }
+        if (!empty($cItem['scorms']) && is_array($cItem['scorms'])) {
+            foreach ($cItem['scorms'] as &$scItem) {
+                $scDone = !empty($scItem['is_completed']) || in_array(strtolower($scItem['status'] ?? ''), ['completed', 'passed'], true) || (float)($scItem['progress_percent'] ?? 0) >= 100;
+                if (!$scDone) {
+                    $scItem['status'] = 'locked';
+                    $scItem['is_locked'] = true;
+                    $scItem['locked_reason'] = $lockMsg;
+                }
+            }
+            unset($scItem);
+        }
+    }
+    unset($cItem);
 }
 
 $allowCertDownload = false;

@@ -82,6 +82,9 @@ export const CourseDetailPage = () => {
   });
 
   const moodleData = moodleDataRaw ?? null;
+  const deadlineInfo = (moodleData as any)?.deadline_info;
+  const isCertified = Boolean(deadlineInfo?.has_passed || deadlineInfo?.is_completed);
+  const isDeadlineLocked = Boolean(!isCertified && deadlineInfo?.is_deadline_locked);
 
   // Decode HTML entities in course and module titles
   const decodeCourseTitle = (raw?: string) => {
@@ -333,6 +336,15 @@ export const CourseDetailPage = () => {
     let allPrevCompleted = true;
     let prevTitle = '';
     return list.map((item) => {
+      // If deadline is expired and not certified, lock all incomplete courses!
+      if (isDeadlineLocked && item.status !== 'completed') {
+        return {
+          ...item,
+          status: 'locked' as const,
+          is_locked: true,
+          locked_reason: `Onboarding completion deadline of ${deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Access is locked.`,
+        };
+      }
       if (item.admin_unlocked) {
         return {
           ...item,
@@ -363,7 +375,7 @@ export const CourseDetailPage = () => {
         locked_reason: `Complete '${prevTitle || 'previous modules'}' to unlock this course`
       };
     });
-  }, [moodleData]);
+  }, [moodleData, isDeadlineLocked, deadlineInfo]);
 
   // Find targeted module: Prioritize Moodle Course ID first, then CMID, then title/module_id
   const currentModule = useMemo(() => {
@@ -633,6 +645,14 @@ export const CourseDetailPage = () => {
 
   const handleLaunchModule = (item: any) => {
     if (!item) return;
+    if (isDeadlineLocked) {
+      toast({
+        title: "Onboarding Access Locked",
+        description: `Your onboarding completion deadline of ${deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Please contact your manager or HR for an extension.`,
+        variant: "destructive",
+      });
+      return;
+    }
     if (item.status === 'completed' && !item.admin_unlocked) {
       toast({
         title: "Course Completed & Locked",
@@ -650,12 +670,28 @@ export const CourseDetailPage = () => {
 
   const handleRetake = (item: any) => {
     if (!item) return;
+    if (isDeadlineLocked) {
+      toast({
+        title: "Onboarding Access Locked",
+        description: `Your onboarding completion deadline of ${deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Please contact your manager or HR for an extension.`,
+        variant: "destructive",
+      });
+      return;
+    }
     const retakeUrl = item.retake_url || `${item.url}&newattempt=on`;
     openPlayer(retakeUrl, `${item.title || item.name || 'Assessment'} (Retake)`, { ...item, newattempt: 'on' });
   };
 
   const handleReview = (item: any) => {
     if (!item) return;
+    if (isDeadlineLocked) {
+      toast({
+        title: "Onboarding Access Locked",
+        description: `Your onboarding completion deadline of ${deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Please contact your manager or HR for an extension.`,
+        variant: "destructive",
+      });
+      return;
+    }
     const reviewUrl = item.review_url || `${item.url}&mode=review`;
     openPlayer(reviewUrl, `${item.title || item.name || 'Assessment'} (Review)`, { ...item, mode: 'review' });
   };
@@ -805,7 +841,7 @@ export const CourseDetailPage = () => {
 
   const isAssess = currentModule.is_assessment;
   const isCompleted = currentModule.status === 'completed' || Boolean(currentModule.is_completed) || Number(currentModule.progress_percent) === 100;
-  const isLocked = !isCompleted && Boolean(currentModule.is_locked || currentModule.status === 'locked');
+  const isLocked = !isCompleted && Boolean(currentModule.is_locked || currentModule.status === 'locked' || isDeadlineLocked);
   const isInProgress = !isCompleted && !isLocked && currentModule.status === 'in_progress';
   const isFailed = !isCompleted && !isLocked && currentModule.status === 'failed';
 
@@ -841,6 +877,28 @@ export const CourseDetailPage = () => {
             <span className="font-semibold text-slate-700 truncate max-w-md">{currentModule.title}</span>
           </div>
         </div>
+
+        {/* Onboarding Completion Deadline Expired Banner */}
+        {isDeadlineLocked && (
+          <div className="bg-gradient-to-r from-rose-500/10 via-red-500/10 to-amber-500/5 border border-rose-300 rounded-2xl p-4 sm:p-5 shadow-2xs flex items-start sm:items-center gap-3.5">
+            <div className="h-10 w-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Lock className="h-5 w-5" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-black text-rose-950 tracking-tight">
+                  Onboarding Completion Deadline Expired
+                </h3>
+                <span className="text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 px-2 py-0.5 rounded-full">
+                  Access Locked
+                </span>
+              </div>
+              <p className="text-xs text-rose-800/90 font-medium leading-relaxed">
+                Your scheduled onboarding completion cutoff of {deadlineInfo?.effective_deadline_fmt || 'the cutoff date'} has expired. Module launching and final induction assessment attempts are currently locked. If you need an extension, please contact your Reporting Manager or HR Department.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* TOP SECTION: HERO BANNER (70%) + 3 METRIC CARDS (30%) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
@@ -901,9 +959,11 @@ export const CourseDetailPage = () => {
                     <div className="h-12 w-12 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400 mb-2.5 shadow-lg">
                       <Lock className="h-6 w-6" />
                     </div>
-                    <span className="text-xs font-bold text-amber-200 uppercase tracking-wider">Prerequisite Locked</span>
+                    <span className="text-xs font-bold text-amber-200 uppercase tracking-wider">
+                      {isDeadlineLocked ? 'Deadline Expired' : 'Prerequisite Locked'}
+                    </span>
                     <span className="text-[11px] text-slate-300 mt-1 max-w-[200px] leading-tight">
-                      {currentModule.locked_reason || 'Complete previous module to unlock'}
+                      {currentModule.locked_reason || (isDeadlineLocked ? 'Onboarding access is locked' : 'Complete previous module to unlock')}
                     </span>
                   </div>
                 )}
@@ -1020,15 +1080,15 @@ export const CourseDetailPage = () => {
                       ) : (
                         <Button
                           disabled
-                          className="bg-slate-100 text-slate-400 border border-slate-300 px-7 py-2.5 rounded-xl font-bold text-xs shadow-none cursor-not-allowed flex items-center gap-2"
+                          className="bg-rose-50 text-rose-700 border border-rose-200 px-7 py-2.5 rounded-xl font-bold text-xs shadow-none cursor-not-allowed flex items-center gap-2"
                         >
-                          <Lock className="h-4 w-4 text-slate-400" />
-                          Course Locked
+                          <Lock className="h-4 w-4 text-rose-600" />
+                          {isDeadlineLocked ? 'Access Locked (Deadline Expired)' : 'Course Locked'}
                         </Button>
                       )}
                       {currentModule.locked_reason && currentModule.status !== 'completed' && (
-                        <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                          <Lock className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                        <span className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                          <Lock className="h-3.5 w-3.5 shrink-0 text-rose-600" />
                           {currentModule.locked_reason}
                         </span>
                       )}

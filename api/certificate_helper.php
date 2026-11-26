@@ -148,18 +148,19 @@ if (!defined('CERT_HELPER_LOADED')) {
                 $attemptNumber = 1;
                 $passedAt = date('Y-m-d H:i:s');
 
-                // Check passing attempt if table exists
+                $hasPassedAttempt = false;
                 try {
                     $aStmt = @$conn->prepare("
                         SELECT attempt, Quiz_score, attempted_at, emp_code, emp_name
                         FROM `onboard_induction_assessment_attempts`
-                        WHERE user_id = ? AND result = 'Passed'
+                        WHERE user_id = ? AND (result = 'Passed' OR Quiz_score >= 80)
                         ORDER BY id DESC LIMIT 1
                     ");
                     if ($aStmt) {
                         $aStmt->bind_param("i", $userId);
                         $aStmt->execute();
                         if ($aRow = $aStmt->get_result()->fetch_assoc()) {
+                            $hasPassedAttempt = true;
                             $quizScore = (float)$aRow['Quiz_score'];
                             $attemptNumber = (int)$aRow['attempt'];
                             $passedAt = $aRow['attempted_at'] ?: $passedAt;
@@ -170,6 +171,22 @@ if (!defined('CERT_HELPER_LOADED')) {
                     }
                 } catch (\Throwable $e) {
                     // Assessment table not present in test environment
+                }
+
+                // If candidate NEVER passed the assessment, NEVER issue a certificate!
+                if (!$hasPassedAttempt) {
+                    $conn->rollback();
+                    return [
+                        'id' => 0,
+                        'user_id' => $userId,
+                        'certificate_number' => null,
+                        'emp_code' => $empCode ?: "HL{$userId}",
+                        'emp_name' => $empName ?: "Employee",
+                        'quiz_score' => 0,
+                        'attempt_number' => 0,
+                        'passed_at' => null,
+                        'issued_at' => null
+                    ];
                 }
 
                 // Fallback to user table if needed

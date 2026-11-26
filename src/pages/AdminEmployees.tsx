@@ -24,11 +24,16 @@ import {
   Filter,
   RotateCcw,
   Award,
-  X
+  X,
+  Download,
+  Check,
+  XCircle
 } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
+import { useToast } from "@/components/ui/use-toast";
 import { AdminCourseAccessModal } from "@/components/AdminCourseAccessModal";
+import { AdminExtendDeadlineModal } from "@/components/AdminExtendDeadlineModal";
 import { downloadCertificatePdf } from "@/lib/certificateGenerator";
 
 interface AdminEmployeesResponse {
@@ -48,6 +53,30 @@ interface AdminEmployeesResponse {
     moodleEnrolled: number;
     notEnrolled: number;
     completed?: number;
+    certified?: number;
+    deadlineLocked?: number;
+    certificatesDownloaded?: number;
+    enrolledBreakdown?: {
+      all: number;
+      courses_done: number;
+      courses_incomplete: number;
+      assess_passed: number;
+      assess_failed: number;
+      assess_never: number;
+    };
+    completedBreakdown?: {
+      all: number;
+      assess_passed: number;
+      assess_failed: number;
+      assess_never: number;
+    };
+    lockedBreakdown?: {
+      all: number;
+      courses_done: number;
+      courses_incomplete: number;
+      assess_attempted: number;
+      assess_never: number;
+    };
     currentEnrolled?: number;
     exEnrolled?: number;
     empType?: string;
@@ -132,16 +161,19 @@ const AdminEmployees = () => {
   const [searchParams] = useSearchParams();
   const targetUidParam = searchParams.get('uid');
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   // Core Pagination State
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
 
-  // Filter States
-  const [filterTab, setFilterTab] = useState<'enrolled' | 'all' | 'not_enrolled' | 'completed'>('enrolled');
+  // Filter States - Unified Admin Management
+  const [filterTab, setFilterTab] = useState<'all' | 'enrolled' | 'completed' | 'certified' | 'locked' | 'downloaded' | 'not_enrolled'>('all');
   const [empType, setEmpType] = useState<'current' | 'ex'>('current');
   const [selectedDept, setSelectedDept] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'not_started' | 'in_progress' | 'completed' | 'not_enrolled'>('all');
+  const [subFilter, setSubFilter] = useState<string>('all');
+  const [assessmentFilter, setAssessmentFilter] = useState<'all' | 'passed' | 'attempted' | 'never_attempted'>('all');
   const [compRange, setCompRange] = useState<string>('all');
   const [customMin, setCustomMin] = useState<string>('');
   const [customMax, setCustomMax] = useState<string>('');
@@ -160,10 +192,36 @@ const AdminEmployees = () => {
   // Reset page to 1 whenever debounced search or filters change
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, selectedDept, statusFilter, compRange, customMin, customMax, empType, filterTab]);
+  }, [debouncedSearch, selectedDept, statusFilter, compRange, customMin, customMax, empType, filterTab, subFilter, assessmentFilter]);
 
   // Modal and View Mode States
   const [accessModalEmployee, setAccessModalEmployee] = useState<any | null>(null);
+  const [extendModalEmployee, setExtendModalEmployee] = useState<any | null>(null);
+  const [downloadingCertUid, setDownloadingCertUid] = useState<number | null>(null);
+
+  const handleDownloadCert = async (emp: any) => {
+    setDownloadingCertUid(emp.uid);
+    try {
+      await downloadCertificatePdf({
+        name: emp.name,
+        empCode: emp.emp_code || `HL${emp.uid}`,
+        dateStr: emp.passed_date_fmt || emp.assessment?.passed_date_fmt || 'November 2026',
+        certNumber: emp.certificate?.certificate_number,
+      });
+      toast({
+        title: "Certificate Downloaded",
+        description: `Official certificate for ${emp.name} downloaded successfully.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Download Failed",
+        description: err?.message || "Failed to download certificate.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingCertUid(null);
+    }
+  };
   const [viewMode, setViewMode] = useState<'grid' | 'table'>(() => {
     const saved = localStorage.getItem('admin_employee_view_mode_v2');
     if (saved === 'grid' || saved === 'table') return saved;
@@ -207,6 +265,15 @@ const AdminEmployees = () => {
     if (statusFilter !== 'all') {
       params.set('status_filter', statusFilter);
     }
+    if (subFilter !== 'all') {
+      params.set('subfilter', subFilter);
+      if (filterTab === 'locked') {
+        params.set('locked_subfilter', subFilter);
+      }
+    }
+    if (assessmentFilter !== 'all') {
+      params.set('assessment_status', assessmentFilter);
+    }
     if (compRange !== 'all') {
       params.set('comp_range', compRange);
       if (compRange === 'custom') {
@@ -216,7 +283,7 @@ const AdminEmployees = () => {
     }
 
     return `/admin/employees.php?${params.toString()}`;
-  }, [page, limit, filterTab, empType, debouncedSearch, selectedDept, statusFilter, compRange, customMin, customMax]);
+  }, [page, limit, filterTab, empType, debouncedSearch, selectedDept, statusFilter, subFilter, assessmentFilter, compRange, customMin, customMax]);
 
   // Server-Side Query Execution
   const { data, isLoading: loading, isFetching, refetch } = useQuery<AdminEmployeesResponse>({
@@ -267,23 +334,27 @@ const AdminEmployees = () => {
       searchInput.trim() !== '' ||
       selectedDept !== 'all' ||
       statusFilter !== 'all' ||
+      subFilter !== 'all' ||
+      assessmentFilter !== 'all' ||
       compRange !== 'all' ||
       customMin !== '' ||
       customMax !== '' ||
-      filterTab !== 'enrolled' ||
+      filterTab !== 'all' ||
       empType !== 'current'
     );
-  }, [debouncedSearch, searchInput, selectedDept, statusFilter, compRange, customMin, customMax, filterTab, empType]);
+  }, [debouncedSearch, searchInput, selectedDept, statusFilter, subFilter, assessmentFilter, compRange, customMin, customMax, filterTab, empType]);
 
   const handleClearAllFilters = () => {
     setSearchInput('');
     setDebouncedSearch('');
     setSelectedDept('all');
     setStatusFilter('all');
+    setSubFilter('all');
+    setAssessmentFilter('all');
     setCompRange('all');
     setCustomMin('');
     setCustomMax('');
-    setFilterTab('enrolled');
+    setFilterTab('all');
     setEmpType('current');
     setPage(1);
   };
@@ -307,9 +378,13 @@ const AdminEmployees = () => {
     if (document.body) document.body.scrollTop = 0;
   }, [page]);
 
-  const handleFilterCardClick = (newFilter: 'enrolled' | 'all' | 'not_enrolled' | 'completed') => {
-    if (filterTab === newFilter) return;
-    setFilterTab(newFilter);
+  const handleFilterCardClick = (newFilter: 'all' | 'enrolled' | 'completed' | 'certified' | 'locked' | 'downloaded' | 'not_enrolled') => {
+    if (filterTab === newFilter) {
+      setFilterTab('all');
+    } else {
+      setFilterTab(newFilter);
+    }
+    setSubFilter('all');
     if (newFilter === 'not_enrolled') {
       setEmpType('current');
       setStatusFilter('all');
@@ -332,26 +407,26 @@ const AdminEmployees = () => {
                   Employee Learning &amp; Progress
                 </h1>
                 <p className="text-xs text-slate-400 font-medium mt-0.5">
-                  Track employee onboarding progress, courses, and module completions (10 per page)
+                  Centralized Onboarding, Assessment Results, Deadlines &amp; Certificate Management (10 per page)
                 </p>
               </div>
             </div>
           </div>
 
-          {/* 4 Overview Metric Cards - Click any card to filter */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-slate-100">
+          {/* 6 High-Impact KPI Metric Cards - Click any card to filter */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-100">
             {/* 1. Total Employees */}
             <button
               type="button"
               onClick={() => handleFilterCardClick('all')}
-              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'all'
-                ? 'border-slate-800 bg-white ring-2 ring-slate-800/20'
+              className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'all'
+                ? 'border-slate-800 bg-white ring-2 ring-slate-800/20 shadow-xs'
                 : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
                 }`}
               title="Show all company roster"
             >
               <div className="flex items-center justify-between">
-                <span className={`text-[10px] font-black uppercase tracking-wider ${filterTab === 'all' ? 'text-slate-800' : 'text-slate-500'}`}>
+                <span className={`text-[10px] font-black uppercase tracking-wider ${filterTab === 'all' ? 'text-slate-900' : 'text-slate-500'}`}>
                   Total Employees
                 </span>
                 <span className="text-[9px] font-bold text-slate-500 px-1.5 py-0.5 rounded bg-slate-100">
@@ -371,7 +446,7 @@ const AdminEmployees = () => {
             <button
               type="button"
               onClick={() => handleFilterCardClick('enrolled')}
-              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'enrolled'
+              className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'enrolled'
                 ? 'border-[#00A389] bg-white ring-2 ring-[#00A389]/25 shadow-xs'
                 : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
                 }`}
@@ -390,24 +465,24 @@ const AdminEmployees = () => {
                 {isInitialLoading ? "..." : summary.moodleEnrolled}
               </div>
               <div className="text-[11px] text-emerald-700 font-medium mt-0.5 flex items-center justify-between">
-                <span>Active in Moodle LMS</span>
+                <span>Active in LMS</span>
                 <span className="text-[10px] font-bold text-emerald-600 group-hover:translate-x-0.5 transition-transform">Filter →</span>
               </div>
             </button>
 
-            {/* 3. Completed Onboarding */}
+            {/* 3. Completed Courses */}
             <button
               type="button"
               onClick={() => handleFilterCardClick('completed')}
-              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'completed'
+              className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'completed'
                 ? 'border-emerald-600 bg-white ring-2 ring-emerald-600/25'
                 : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
                 }`}
-              title="Employees who finished 100% of courses"
+              title="Employees who finished 10 of 10 courses"
             >
               <div className="flex items-center justify-between">
                 <span className={`text-[10px] font-black uppercase tracking-wider ${filterTab === 'completed' ? 'text-emerald-800' : 'text-slate-500'}`}>
-                  Completed
+                  Courses Done
                 </span>
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
               </div>
@@ -415,33 +490,83 @@ const AdminEmployees = () => {
                 {isInitialLoading ? "..." : (summary.completed ?? completedCount)}
               </div>
               <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center justify-between">
-                <span>100% courses finished</span>
+                <span>10 of 10 finished</span>
                 <span className="text-[10px] font-bold text-emerald-600 group-hover:translate-x-0.5 transition-transform">Filter →</span>
               </div>
             </button>
 
-            {/* 4. Not Enrolled (Unlinked) */}
+            {/* 4. Certified (Passed Induction Assessment) */}
             <button
               type="button"
-              onClick={() => handleFilterCardClick('not_enrolled')}
-              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'not_enrolled'
-                ? 'border-amber-600 bg-white ring-2 ring-amber-600/25'
+              onClick={() => handleFilterCardClick('certified')}
+              className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'certified'
+                ? 'border-teal-600 bg-white ring-2 ring-teal-600/25'
                 : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
                 }`}
-              title="Staff not yet enrolled in Moodle Onboarding"
+              title="Passed Induction Assessment (Certified)"
             >
               <div className="flex items-center justify-between">
-                <span className={`text-[10px] font-black uppercase tracking-wider ${filterTab === 'not_enrolled' ? 'text-amber-800' : 'text-slate-500'}`}>
-                  Not Enrolled
+                <span className={`text-[10px] font-black uppercase tracking-wider ${filterTab === 'certified' ? 'text-teal-800' : 'text-slate-500'}`}>
+                  Certified
                 </span>
-                <span className="text-[9px] font-bold text-amber-700 px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200/60">Unlinked</span>
+                <Award className="h-3.5 w-3.5 text-teal-600" />
               </div>
-              <div className="text-2xl font-black text-slate-600 mt-1">
-                {isInitialLoading ? "..." : summary.notEnrolled}
+              <div className="text-2xl font-black text-teal-700 mt-1">
+                {isInitialLoading ? "..." : (summary.certified ?? 0)}
               </div>
-              <div className="text-[11px] text-slate-400 font-medium mt-0.5 flex items-center justify-between">
-                <span>Not yet in onboarding</span>
-                <span className="text-[10px] font-bold text-amber-600 group-hover:translate-x-0.5 transition-transform">Filter →</span>
+              <div className="text-[11px] text-teal-700 font-medium mt-0.5 flex items-center justify-between">
+                <span>Passed assessment</span>
+                <span className="text-[10px] font-bold text-teal-600 group-hover:translate-x-0.5 transition-transform">Filter →</span>
+              </div>
+            </button>
+
+            {/* 5. Deadline Locked */}
+            <button
+              type="button"
+              onClick={() => handleFilterCardClick('locked')}
+              className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'locked'
+                ? 'border-rose-600 bg-white ring-2 ring-rose-600/25'
+                : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
+                }`}
+              title="Cutoff expired without passing"
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-[10px] font-black uppercase tracking-wider ${filterTab === 'locked' ? 'text-rose-800' : 'text-slate-500'}`}>
+                  Deadline Locked
+                </span>
+                <Lock className="h-3.5 w-3.5 text-rose-600" />
+              </div>
+              <div className="text-2xl font-black text-rose-700 mt-1">
+                {isInitialLoading ? "..." : (summary.deadlineLocked ?? 0)}
+              </div>
+              <div className="text-[11px] text-rose-600 font-medium mt-0.5 flex items-center justify-between">
+                <span>Cutoff expired</span>
+                <span className="text-[10px] font-bold text-rose-600 group-hover:translate-x-0.5 transition-transform">Filter →</span>
+              </div>
+            </button>
+
+            {/* 6. Certificates Downloaded */}
+            <button
+              type="button"
+              onClick={() => handleFilterCardClick('downloaded')}
+              className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden group shadow-2xs hover:shadow-md ${filterTab === 'downloaded'
+                ? 'border-blue-600 bg-white ring-2 ring-blue-600/25'
+                : 'border-slate-200/90 bg-slate-50/60 hover:bg-white'
+                }`}
+              title="Official PDF certificates downloaded"
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-[10px] font-black uppercase tracking-wider ${filterTab === 'downloaded' ? 'text-blue-800' : 'text-slate-500'}`}>
+                  Cert Downloaded
+                </span>
+                <Download className="h-3.5 w-3.5 text-blue-600" />
+              </div>
+              <div className="text-2xl font-black text-blue-700 mt-1">
+                {isInitialLoading ? "..." : (summary.certificatesDownloaded ?? 0)}
+              </div>
+              <div className="text-[11px] text-blue-600 font-medium mt-0.5 flex items-center justify-between">
+                <span>PDF issued</span>
+                <span className="text-[10px] font-bold text-blue-600 group-hover:translate-x-0.5 transition-transform">Filter →</span>
               </div>
             </button>
           </div>
@@ -455,7 +580,7 @@ const AdminEmployees = () => {
             Completion % Dropdown (preset + custom min/max)
            ========================================================================= */}
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
             {/* 1. Instant Typing Search */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
@@ -544,7 +669,31 @@ const AdminEmployees = () => {
               </div>
             </div>
 
-            {/* 4. Completion % Dropdown */}
+            {/* 4. Assessment Status Dropdown */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <Award className="h-3 w-3 text-slate-400" />
+                <span>Assessment Status</span>
+              </label>
+              <div className="relative">
+                <select
+                  value={assessmentFilter}
+                  onChange={(e) => {
+                    setAssessmentFilter(e.target.value as any);
+                    setPage(1);
+                  }}
+                  className="w-full h-10 px-3 pr-8 rounded-xl border border-slate-200/90 text-xs font-semibold bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#00A389]/20 focus:border-[#00A389] cursor-pointer text-slate-700 transition-all appearance-none"
+                >
+                  <option value="all">All Assessments</option>
+                  <option value="passed">Passed (Certified)</option>
+                  <option value="attempted">Attempted (Failed)</option>
+                  <option value="never_attempted">Never Attempted</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* 5. Completion % Dropdown */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                 <Percent className="h-3 w-3 text-slate-400" />
@@ -657,6 +806,44 @@ const AdminEmployees = () => {
                         setPage(1);
                       }}
                       className="hover:text-purple-900 cursor-pointer"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+
+                {/* Assessment Status pill */}
+                {assessmentFilter !== 'all' && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">
+                    <span>
+                      Assessment: {assessmentFilter === 'passed' ? 'Passed (Certified)' : assessmentFilter === 'attempted' ? 'Attempted (Failed)' : 'Never Attempted'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssessmentFilter('all');
+                        setPage(1);
+                      }}
+                      className="hover:text-teal-900 cursor-pointer"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+
+                {/* Active Sub-filter pill */}
+                {subFilter !== 'all' && (
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border ${filterTab === 'locked' || subFilter === 'locked' ? 'bg-rose-50 text-rose-700 border-rose-200' : filterTab === 'completed' ? 'bg-teal-50 text-teal-700 border-teal-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                    <span>
+                      Sub-Filter: {subFilter === 'enrolled' ? 'Enrolled in LMS' : subFilter === 'not_enrolled' ? 'Not Enrolled' : subFilter === 'courses_done' ? '100% Courses Done' : subFilter === 'courses_incomplete' ? 'Courses Incomplete' : subFilter === 'assess_passed' ? 'Assessment Passed' : subFilter === 'assess_failed' ? 'Failed Attempt' : subFilter === 'assess_attempted' ? 'Attempted Assessment' : subFilter === 'locked' ? 'Deadline Locked' : 'Never Attempted Assessment'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubFilter('all');
+                        setPage(1);
+                      }}
+                      className="hover:opacity-75 cursor-pointer"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -927,6 +1114,254 @@ const AdminEmployees = () => {
                 </div>
               </div>
 
+              {/* Quick Sub-Filter Pills for Total Company Staff (50) */}
+              {filterTab === 'all' && (
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wider pr-1 flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5 text-slate-600" />
+                      Company Roster Breakdown:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('all'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'all'
+                        ? 'bg-slate-800 text-white shadow-xs'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                        }`}
+                    >
+                      All Staff ({summary.totalStaff ?? 50})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('enrolled'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'enrolled'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}
+                    >
+                      Enrolled in LMS ({summary.moodleEnrolled ?? 48})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('not_enrolled'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'not_enrolled'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}
+                    >
+                      Not Enrolled ({summary.notEnrolled ?? 2})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('courses_done'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_done'
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-teal-50 text-teal-800 border border-teal-200'
+                        }`}
+                    >
+                      100% Courses Done ({summary.completed ?? 45})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('assess_passed'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_passed'
+                        ? 'bg-[#00A389] text-white shadow-xs'
+                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}
+                    >
+                      Assessment Passed ({summary.certified ?? 36} Certified)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('locked'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'locked'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-rose-50 text-rose-800 border border-rose-200'
+                        }`}
+                    >
+                      Deadline Locked ({summary.deadlineLocked ?? 12})
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Sub-Filter Pills for Enrolled (48) */}
+              {filterTab === 'enrolled' && (
+                <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider pr-1 flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5 text-emerald-600" />
+                      Enrolled Breakdown:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('all'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'all'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        }`}
+                    >
+                      All Enrolled ({summary.enrolledBreakdown?.all ?? summary.moodleEnrolled ?? 48})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('courses_done'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_done'
+                        ? 'bg-emerald-700 text-white shadow-xs'
+                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}
+                    >
+                      100% Courses Done ({summary.enrolledBreakdown?.courses_done ?? 45})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('courses_incomplete'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_incomplete'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}
+                    >
+                      Courses Incomplete ({summary.enrolledBreakdown?.courses_incomplete ?? 3})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('assess_passed'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_passed'
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-teal-50 text-teal-800 border border-teal-200'
+                        }`}
+                    >
+                      Assessment Passed ({summary.enrolledBreakdown?.assess_passed ?? 36})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('assess_never'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_never'
+                        ? 'bg-slate-700 text-white shadow-xs'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                        }`}
+                    >
+                      Never Attempted Assessment ({summary.enrolledBreakdown?.assess_never ?? 11})
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Sub-Filter Pills for Courses Completed (45) */}
+              {filterTab === 'completed' && (
+                <div className="bg-teal-50/60 border border-teal-200 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold text-teal-900 uppercase tracking-wider pr-1 flex items-center gap-1.5">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-teal-600" />
+                      Courses Done Breakdown:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('all'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'all'
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-teal-100 text-teal-800 border border-teal-200'
+                        }`}
+                    >
+                      All 10 Courses Done ({summary.completedBreakdown?.all ?? summary.completed ?? 45})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('assess_passed'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_passed'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}
+                    >
+                      Assessment Passed ({summary.completedBreakdown?.assess_passed ?? 36} Certified)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('assess_failed'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_failed'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-rose-50 text-rose-800 border border-rose-200'
+                        }`}
+                    >
+                      Failed Attempt ({summary.completedBreakdown?.assess_failed ?? 1})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('assess_never'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_never'
+                        ? 'bg-slate-700 text-white shadow-xs'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                        }`}
+                    >
+                      Never Attempted Assessment ({summary.completedBreakdown?.assess_never ?? 8})
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Sub-Filter Pills for Deadline Locked */}
+              {filterTab === 'locked' && (
+                <div className="bg-rose-50/60 border border-rose-200 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold text-rose-900 uppercase tracking-wider pr-1 flex items-center gap-1.5">
+                      <Lock className="h-3.5 w-3.5 text-rose-600" />
+                      Locked Breakdown:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('all'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'all'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-rose-100 text-rose-800 border border-rose-200'
+                        }`}
+                    >
+                      All Locked ({summary.lockedBreakdown?.all ?? summary.deadlineLocked ?? 12})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('courses_done'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_done'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}
+                    >
+                      100% Courses Done ({summary.lockedBreakdown?.courses_done ?? 8})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('courses_incomplete'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'courses_incomplete'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}
+                    >
+                      Courses Incomplete ({summary.lockedBreakdown?.courses_incomplete ?? 4})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('assess_attempted'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_attempted'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white hover:bg-blue-50 text-blue-800 border border-blue-200'
+                        }`}
+                    >
+                      Attempted Assessment ({summary.lockedBreakdown?.assess_attempted ?? 1})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubFilter('assess_never'); setPage(1); }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${subFilter === 'assess_never'
+                        ? 'bg-slate-700 text-white shadow-xs'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                        }`}
+                    >
+                      Never Attempted ({summary.lockedBreakdown?.assess_never ?? 11})
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* View Mode 1: Responsive Grid Format */}
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -937,7 +1372,8 @@ const AdminEmployees = () => {
                     const isCompleted = percent === 100;
                     const isInProgress = (percent > 0 && percent < 100) || (r.is_moodle_enrolled && r.progress?.status === 'In Progress');
                     const dlInfo = r.deadline_info;
-                    const isTraineeCertified = Boolean(dlInfo?.has_passed || dlInfo?.is_completed || isCompleted);
+                    // Strict Certification Rule: Trainee is Certified ONLY if they took and passed assessment (≥ 80%)
+                    const isTraineeCertified = Boolean(r.assessment?.is_passed || dlInfo?.has_passed);
                     const isTraineeLocked = Boolean(!isTraineeCertified && dlInfo?.is_deadline_locked);
                     const isTraineeExtended = Boolean(!isTraineeCertified && dlInfo?.is_extended);
 
@@ -1116,31 +1552,35 @@ const AdminEmployees = () => {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50/90 border-b border-slate-200/80 text-[11px] font-black uppercase tracking-wider text-slate-500">
-                          <th className="py-3.5 px-4">Employee</th>
-                          <th className="py-3.5 px-4">Department &amp; Cohort</th>
-                          <th className="py-3.5 px-4 min-w-[200px]">Onboarding Progress</th>
-                          <th className="py-3.5 px-4">Status</th>
-                          <th className="py-3.5 px-4 text-right">Audit &amp; Report</th>
+                          <th className="py-3.5 px-4 min-w-[220px]">Employee</th>
+                          <th className="py-3.5 px-4 min-w-[170px]">Courses (10)</th>
+                          <th className="py-3.5 px-4 min-w-[150px]">Assessment</th>
+                          <th className="py-3.5 px-4 min-w-[170px]">Deadline &amp; Access</th>
+                          <th className="py-3.5 px-4 min-w-[160px]">Certificate</th>
+                          <th className="py-3.5 px-4 text-right min-w-[190px]">Audit &amp; Report</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {rows.map((r) => {
-                          const totalMod = r.progress?.total || totalModules || 3;
+                          const totalMod = r.progress?.total || totalModules || 10;
                           const completedMod = r.progress?.completed || 0;
                           const percent = totalMod > 0 ? Math.min(100, Math.round((completedMod / totalMod) * 100)) : (r.progress?.percent || 0);
                           const isCompleted = percent === 100;
                           const isInProgress = (percent > 0 && percent < 100) || (r.is_moodle_enrolled && r.progress?.status === 'In Progress');
                           const dlInfo = r.deadline_info;
-                          const isTraineeCertified = Boolean(dlInfo?.has_passed || dlInfo?.is_completed || isCompleted);
+                          // Strict Certification Rule: Trainee is Certified ONLY if they took and passed assessment (≥ 80%)
+                          const isTraineeCertified = Boolean(r.assessment?.is_passed || dlInfo?.has_passed);
                           const isTraineeLocked = Boolean(!isTraineeCertified && dlInfo?.is_deadline_locked);
                           const isTraineeExtended = Boolean(!isTraineeCertified && dlInfo?.is_extended);
+                          const assessData = r.assessment;
+                          const certData = r.certificate;
 
                           return (
                             <tr
                               key={r.uid}
                               className="hover:bg-slate-50/70 transition-colors group"
                             >
-                              {/* Employee Column */}
+                              {/* 1. Employee Column */}
                               <td className="py-4 px-4 whitespace-nowrap">
                                 <div className="flex items-center gap-3">
                                   <div className="h-10 w-10 rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-700 shrink-0 shadow-2xs">
@@ -1170,47 +1610,23 @@ const AdminEmployees = () => {
                                       <Mail className="h-3 w-3 shrink-0" />
                                       <span>{r.email || `UID: #${r.uid}`}</span>
                                     </div>
-                                  </div>
-                                </div>
-                              </td>
-
-                              {/* Department & LMS Cohort Column */}
-                              <td className="py-4 px-4 whitespace-nowrap">
-                                <div className="space-y-1">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {/* Department Badge */}
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                      <Building2 className="h-3 w-3 text-blue-500" />
-                                      <span>{r.department_name || 'General'}</span>
-                                    </span>
-
-                                    {r.is_ex_employee && (
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                                        Ex-Employee
+                                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                        <Building2 className="h-2.5 w-2.5 text-blue-500" />
+                                        <span>{r.department_name || 'General'}</span>
                                       </span>
-                                    )}
-                                    {r.is_moodle_enrolled ? (
-                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                        Moodle #{r.moodle_user_id || r.uid}
-                                      </span>
-                                    ) : (
-                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
-                                        Staff
-                                      </span>
-                                    )}
-                                  </div>
-                                  {r.joiningdate_fmt && (
-                                    <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                                      <Calendar className="h-3 w-3" />
-                                      <span>Joined {r.joiningdate_fmt}</span>
+                                      {r.joiningdate_fmt && (
+                                        <span className="text-[9px] text-slate-400">
+                                          Joined {r.joiningdate_fmt}
+                                        </span>
+                                      )}
                                     </div>
-                                  )}
+                                  </div>
                                 </div>
                               </td>
 
-                              {/* Progress Column */}
-                              <td className="py-4 px-4 min-w-[200px]">
+                              {/* 2. Courses (10) Column */}
+                              <td className="py-4 px-4 min-w-[170px]">
                                 {r.is_moodle_enrolled ? (
                                   <div className="space-y-1.5">
                                     <div className="flex items-center justify-between gap-2">
@@ -1226,74 +1642,135 @@ const AdminEmployees = () => {
                                       </span>
                                     </div>
                                     <div className="text-[10px] font-medium text-slate-500 flex items-center justify-between">
-                                      <span>{completedMod} of {totalMod} courses completed</span>
+                                      <span>{completedMod} of {totalMod} completed</span>
                                       <span className="font-mono text-[9px] text-slate-400">UID #{r.uid}</span>
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="text-[11px] text-slate-400 font-medium">
-                                    Not enrolled in LMS
-                                  </div>
+                                  <span className="text-[11px] text-slate-400 font-medium italic">
+                                    Not enrolled
+                                  </span>
                                 )}
                               </td>
 
-                              {/* Status Column */}
-                              <td className="py-4 px-4 whitespace-nowrap">
-                                <div className="flex flex-col gap-1 items-start">
-                                  <span
-                                    className={`text-[10px] font-bold px-2.5 py-1 rounded-full border inline-flex items-center gap-1 ${!r.is_moodle_enrolled
-                                      ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                      : isTraineeCertified
-                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        : isTraineeLocked
-                                          ? 'bg-red-50 text-red-700 border-red-200'
-                                          : isTraineeExtended
-                                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                            : isInProgress
-                                              ? 'bg-[#E6F7F4] text-[#00A389] border-[#00A389]/30'
-                                              : 'bg-slate-100 text-slate-600 border-slate-200'
-                                      }`}
-                                  >
-                                    {!r.is_moodle_enrolled ? (
-                                      <>
-                                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                                        <span>Not Enrolled</span>
-                                      </>
-                                    ) : isTraineeCertified ? (
-                                      <>
+                              {/* 3. Assessment Column */}
+                              <td className="py-4 px-4 whitespace-nowrap min-w-[150px]">
+                                {assessData && (assessData.attempts_count > 0 || assessData.latest_attempt > 0 || assessData.attempt_number > 0 || assessData.result === 'Passed' || assessData.result === 'Failed') ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span
+                                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${assessData.is_passed
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                                          }`}
+                                      >
+                                        {assessData.is_passed ? (
+                                          <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                        ) : (
+                                          <XCircle className="h-3 w-3 text-rose-600" />
+                                        )}
+                                        <span>{assessData.result || (assessData.is_passed ? 'Passed' : 'Failed')}</span>
+                                      </span>
+                                      {(assessData.score !== null || assessData.latest_score !== null) && (
+                                        <span className="font-bold text-xs text-slate-700">
+                                          {Math.round(Number(assessData.score ?? assessData.latest_score))}%
+                                        </span>
+                                      )}
+                                      {(assessData.attempt_number > 0 || assessData.latest_attempt > 0) && (
+                                        <span className="text-[10px] text-slate-400 font-medium">
+                                          (Att #{assessData.attempt_number || assessData.latest_attempt})
+                                        </span>
+                                      )}
+                                    </div>
+                                    {(assessData.passed_date_fmt || assessData.submitted_at_fmt) && (
+                                      <div className="text-[10px] text-slate-400">
+                                        {assessData.passed_date_fmt || assessData.submitted_at_fmt}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200">
+                                    Not Attempted
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* 4. Deadline & Access Column */}
+                              <td className="py-4 px-4 whitespace-nowrap min-w-[170px]">
+                                <div className="space-y-1">
+                                  <div>
+                                    {isTraineeCertified ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                         <CheckCircle2 className="h-3 w-3 text-emerald-600" />
                                         <span>Certified</span>
-                                      </>
+                                      </span>
                                     ) : isTraineeLocked ? (
-                                      <>
-                                        <Lock className="h-3 w-3 text-red-600" />
-                                        <span>Locked</span>
-                                      </>
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                        <Lock className="h-3 w-3 text-rose-600" />
+                                        <span>Deadline Locked</span>
+                                      </span>
                                     ) : isTraineeExtended ? (
-                                      <>
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
                                         <Clock className="h-3 w-3 text-blue-600" />
                                         <span>Extended</span>
-                                      </>
-                                    ) : isInProgress ? (
-                                      <>
-                                        <span className="h-1.5 w-1.5 rounded-full bg-[#00A389] animate-pulse" />
-                                        <span>In Progress</span>
-                                      </>
+                                      </span>
                                     ) : (
-                                      <span>Not Started</span>
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                        <Clock className="h-3 w-3 text-amber-600" />
+                                        <span>Pending Cutoff</span>
+                                      </span>
                                     )}
-                                  </span>
-                                  {dlInfo && !isTraineeCertified && (
-                                    <span className="text-[10px] text-slate-400 font-mono pl-0.5">
-                                      {isTraineeLocked ? 'Expired: ' : 'Deadline: '}
-                                      {dlInfo.effective_deadline_fmt ? dlInfo.effective_deadline_fmt.split(' ')[0] : '24-Nov-2026'}
-                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 font-mono">
+                                    {dlInfo?.effective_deadline_fmt || dlInfo?.effective_deadline || '24-Nov-2026 11:59 PM'}
+                                  </div>
+                                  {isTraineeLocked && (
+                                    <div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setExtendModalEmployee(r)}
+                                        className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 inline-flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                        title="Grant deadline extension"
+                                      >
+                                        <Clock className="h-2.5 w-2.5" />
+                                        <span>Extend Deadline</span>
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                               </td>
 
-                              {/* Action: Enrolled trainees only */}
-                              <td className="py-4 px-4 text-right whitespace-nowrap">
+                              {/* 5. Certificate Column */}
+                              <td className="py-4 px-4 whitespace-nowrap min-w-[150px]">
+                                {isTraineeCertified && certData?.certificate_number ? (
+                                  <div className="space-y-1">
+                                    <div>
+                                      <span className="font-mono text-[10px] font-bold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded">
+                                        {certData.certificate_number}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      {certData && certData.download_count > 0 ? (
+                                        <span className="text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                                          <Check className="h-2.5 w-2.5" />
+                                          <span>Downloaded ({certData.download_count})</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-[9px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-full">
+                                          Not Downloaded
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-slate-400 italic">
+                                    Pending Assessment
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* 6. Audit & Report Column */}
+                              <td className="py-4 px-4 text-right whitespace-nowrap min-w-[190px]">
                                 {r.is_moodle_enrolled ? (
                                   <div className="flex items-center justify-end gap-2">
                                     <Button
@@ -1415,6 +1892,13 @@ const AdminEmployees = () => {
         onClose={() => setAccessModalEmployee(null)}
         employeeUid={accessModalEmployee?.uid}
         employeeName={accessModalEmployee?.name}
+        onUpdated={() => refetch()}
+      />
+
+      <AdminExtendDeadlineModal
+        isOpen={Boolean(extendModalEmployee)}
+        onClose={() => setExtendModalEmployee(null)}
+        employee={extendModalEmployee}
         onUpdated={() => refetch()}
       />
     </Layout>

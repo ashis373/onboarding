@@ -2145,7 +2145,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                       item.title.toLowerCase().includes('quiz')
                     );
 
-                    const isItemLocked = item.status !== 'completed' && Boolean(item.status === 'locked' || item.is_locked);
+                    const isItemLocked = item.status !== 'completed' && Boolean(item.status === 'locked' || item.is_locked || isDeadlineLocked);
 
                     return (
                       <div
@@ -2247,7 +2247,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
 
                           {/* Date timestamp */}
                           <div className="hidden md:block text-xs text-slate-400 font-medium">
-                            {formatRecentActivityDate(item)}
+                            {isDeadlineLocked && item.status !== 'completed' ? 'Deadline Expired' : formatRecentActivityDate(item)}
                           </div>
 
                           {/* Chevron */}
@@ -2910,7 +2910,7 @@ export const Dashboard = ({ forcedTab }: DashboardProps = {}) => {
                     {displayModules.length > 0 ? (
                       displayModules.map((item, idx) => {
                         const prog = getModuleProgress(item);
-                        const isItemLocked = item.status !== 'completed' && Boolean(item.status === 'locked' || item.is_locked);
+                        const isItemLocked = item.status !== 'completed' && Boolean(item.status === 'locked' || item.is_locked || isDeadlineLocked);
                         const isLast = idx === displayModules.length - 1;
 
                         let subtitle = 'Not Started';

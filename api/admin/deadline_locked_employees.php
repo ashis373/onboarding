@@ -57,7 +57,7 @@ ensureDeadlinesTable($conn);
 
 // 2. Query Params
 $search = trim($_GET['search'] ?? '');
-$statusFilter = trim($_GET['status'] ?? 'pending'); // 'locked', 'all', 'extended', 'pending', 'passed'
+$statusFilter = trim($_GET['status'] ?? 'locked'); // Default to 'locked': 'locked', 'all', 'extended', 'pending', 'passed'
 $empType = strtolower(trim($_GET['emp_type'] ?? 'current')); // 'current' | 'ex' | 'all'
 $batchFilter = isset($_GET['batch']) && is_numeric($_GET['batch']) ? (int)$_GET['batch'] : 0;
 $page = max(1, (int)($_GET['page'] ?? 1));

@@ -91,7 +91,7 @@ interface ApiResponse {
 export default function AdminDeadlineLocked() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("pending");
+  const [statusFilter, setStatusFilter] = useState<string>("locked");
   const [empType, setEmpType] = useState<"current" | "ex">("current");
   const [page, setPage] = useState(1);
 
@@ -364,8 +364,8 @@ export default function AdminDeadlineLocked() {
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
             {[
-              { id: "pending", label: `Pending Cutoff (${metrics.total_pending})` },
               { id: "locked", label: `Currently Locked (${metrics.total_locked})` },
+              { id: "pending", label: `Pending Cutoff (${metrics.total_pending})` },
               { id: "extended", label: `Extended (${metrics.total_extended})` },
               { id: "passed", label: `Certified (${metrics.total_passed})` },
               { id: "all", label: `All Batch 1 (${metrics.total_records})` },
